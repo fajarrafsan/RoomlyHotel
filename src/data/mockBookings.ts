@@ -1,0 +1,110 @@
+import { Booking, Notification } from '../types';
+
+export const initialBookings: Booking[] = [
+  {
+    id: 'bk-98214',
+    bookingCode: 'SW-8808-9821',
+    hotelId: 'h1',
+    hotelName: 'The Mulia Resort & Villas',
+    hotelImage: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=800&q=80',
+    hotelLocation: 'Nusa Dua, Bali',
+    hotelAddress: 'Jl. Raya Nusa Dua Selatan No.8, Benoa, Badung, Bali 80363',
+    checkIn: '2026-08-15',
+    checkOut: '2026-08-18',
+    nights: 3,
+    guests: { adults: 2, children: 0 },
+    roomType: 'Mulia Deluxe Ocean Suite',
+    roomSize: '58 m²',
+    bedType: '1 Super King Bed',
+    totalPrice: 11550000,
+    status: 'confirmed',
+    paymentStatus: 'paid',
+    paymentMethod: 'BCA Virtual Account',
+    bookedAt: '2026-08-01 14:22',
+    guestName: 'Fajar Rafsan',
+    guestEmail: 'fajar.rafsan02@gmail.com',
+    guestPhone: '+62 812 3456 7890',
+    specialRequests: 'Lantai tinggi, Kasur King, Penjemputan Bandara jam 14:00 WITA.',
+    hasBreakfast: true,
+    hasAirportShuttle: true
+  },
+  {
+    id: 'bk-88301',
+    bookingCode: 'SW-8808-8830',
+    hotelId: 'h2',
+    hotelName: 'Hotel Indonesia Kempinski',
+    hotelImage: 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80',
+    hotelLocation: 'Bundaran HI, Jakarta',
+    hotelAddress: 'Jl. M.H. Thamrin No.1, Menteng, Jakarta Pusat',
+    checkIn: '2026-07-10',
+    checkOut: '2026-07-12',
+    nights: 2,
+    guests: { adults: 1, children: 0 },
+    roomType: 'Grand Deluxe City View',
+    roomSize: '44 m²',
+    bedType: '1 King Bed',
+    totalPrice: 4900000,
+    status: 'completed',
+    paymentStatus: 'paid',
+    paymentMethod: 'Credit Card Visa (**** 4892)',
+    bookedAt: '2026-07-02 09:15',
+    guestName: 'Fajar Rafsan',
+    guestEmail: 'fajar.rafsan02@gmail.com',
+    guestPhone: '+62 812 3456 7890',
+    hasBreakfast: true,
+    hasAirportShuttle: false
+  },
+  {
+    id: 'bk-71109',
+    bookingCode: 'GRD-2026-BDG-711',
+    hotelId: 'h3',
+    hotelName: 'Padma Hotel Bandung',
+    hotelImage: 'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=800&q=80',
+    hotelLocation: 'Ciumbuleuit, Bandung',
+    hotelAddress: 'Jl. Ranca Bentang No.56-58, Ciumbuleuit, Bandung',
+    checkIn: '2026-09-05',
+    checkOut: '2026-09-07',
+    nights: 2,
+    guests: { adults: 2, children: 1 },
+    roomType: 'Deluxe Hill View Room',
+    roomSize: '38 m²',
+    bedType: '1 King Bed',
+    totalPrice: 3900000,
+    status: 'confirmed',
+    paymentStatus: 'paid',
+    paymentMethod: 'GoPay QRIS',
+    bookedAt: '2026-08-04 18:30',
+    guestName: 'Fajar Rafsan',
+    guestEmail: 'fajar.rafsan02@gmail.com',
+    guestPhone: '+62 812 3456 7890',
+    hasBreakfast: true,
+    hasAirportShuttle: false
+  }
+];
+
+export const initialNotifications: Notification[] = [
+  {
+    id: 'n1',
+    title: 'Pengingat Check-In Nanti!',
+    message: 'Reservasi Anda di The Mulia Resort Bali tersisa 7 hari lagi. Invoice telah siap!',
+    time: '10 menit yang lalu',
+    unread: true,
+    type: 'booking'
+  },
+  {
+    id: 'n2',
+    title: 'Promo Spesial Bali Summer SALE 20%',
+    message: 'Gunakan kode promo "BALISALE20" untuk potongan hingga Rp 1.000.000 untuk penginapan resort.',
+    time: '2 jam yang lalu',
+    unread: true,
+    type: 'promo'
+  },
+  {
+    id: 'n3',
+    title: 'Status Poin Loyalty Gold VIP',
+    message: 'Selamat! Poin membership Anda bertambah +450 Poin setelah masa inap di Hotel Indonesia Kempinski.',
+    time: '1 hari yang lalu',
+    unread: false,
+    type: 'system'
+  }
+];

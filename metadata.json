@@ -1,0 +1,6 @@
+{
+  "name": "StayWell - REST API Hotel Booking System",
+  "description": "Akomodasi & REST API Hotel Booking Platform (Spring Boot REST API) dengan manajemen hotel, reservasi, e-voucher, dan interactive API endpoint runner.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

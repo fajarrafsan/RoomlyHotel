@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,500&family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Playfair Display', ui-serif, Georgia, serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+/* ===== Premium Custom Scrollbar ===== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #f59e0b rgba(241, 245, 249, 0.6);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.6);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #fbbf24, #d97706);
+  border-radius: 999px;
+  border: 2.5px solid rgba(248, 250, 252, 0.9);
+  transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #fcd34d, #f59e0b);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, #f59e0b, #b45309);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Continuous decorative loops as native CSS animations instead of JS-driven
+   (Motion) ones — these run on the compositor thread instead of competing
+   with React/Motion's requestAnimationFrame work and the scroll thread. */
+@keyframes ken-burns {
+  from { transform: scale(1.08); }
+  to { transform: scale(1.18); }
+}
+.animate-ken-burns {
+  animation: ken-burns 24s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes shimmer-sweep {
+  from { transform: translateX(-150%) skewX(-12deg); }
+  to { transform: translateX(300%) skewX(-12deg); }
+}
+.animate-shimmer {
+  animation: shimmer-sweep 2.4s ease-in-out infinite;
+  animation-delay: 1s;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ken-burns,
+  .animate-shimmer {
+    animation: none;
+  }
+}
