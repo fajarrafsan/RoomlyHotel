@@ -29,7 +29,11 @@ export const HeaderNotifications: React.FC<HeaderNotificationsProps> = ({
     <div className="relative shrink-0">
       <button
         onClick={() => setShowNotifMenu(!showNotifMenu)}
-        className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer relative shrink-0"
+        type="button"
+        aria-expanded={showNotifMenu}
+        aria-haspopup="dialog"
+        className="min-w-11 min-h-11 inline-flex items-center justify-center rounded-xl text-slate-500 hover:text-navy hover:bg-navy-soft transition-colors duration-200 cursor-pointer relative shrink-0"
+        aria-label={isID ? 'Notifikasi' : 'Notifications'}
         title={isID ? 'Notifikasi' : 'Notifications'}
       >
         <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -37,7 +41,7 @@ export const HeaderNotifications: React.FC<HeaderNotificationsProps> = ({
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
-            className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 w-2 h-2 bg-amber-500 rounded-full"
+            className="absolute top-1.5 right-1.5 w-2 h-2 bg-gold rounded-full"
           />
         )}
       </button>
@@ -49,16 +53,19 @@ export const HeaderNotifications: React.FC<HeaderNotificationsProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.97 }}
             transition={{ duration: 0.2 }}
-            className="absolute right-0 mt-3 w-80 sm:w-96 bg-white text-slate-900 rounded-2xl shadow-2xl shadow-slate-900/10 border border-slate-100 z-50 overflow-hidden origin-top-right"
+            role="dialog"
+            aria-label={isID ? 'Notifikasi' : 'Notifications'}
+            className="absolute right-0 mt-3 w-80 sm:w-96 bg-white text-slate-900 rounded-2xl shadow-[0_16px_40px_rgba(30,58,138,0.14)] border border-navy-soft z-50 overflow-hidden origin-top-right"
           >
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-              <span className="font-semibold text-sm text-slate-900">
+              <span className="font-semibold text-sm text-navy">
                 {isID ? 'Notifikasi' : 'Notifications'}
               </span>
               {unreadCount > 0 && (
                 <button
                   onClick={onMarkNotificationsRead}
-                  className="text-[11px] text-slate-500 hover:text-slate-900 font-medium cursor-pointer transition-colors"
+                  type="button"
+                  className="text-[12px] text-slate-500 hover:text-navy font-medium cursor-pointer transition-colors duration-200"
                 >
                   {isID ? 'Tandai dibaca' : 'Mark all read'}
                 </button>
@@ -89,7 +96,7 @@ export const HeaderNotifications: React.FC<HeaderNotificationsProps> = ({
                         notif.type === 'booking'
                           ? 'bg-emerald-50 text-emerald-600'
                           : notif.type === 'promo'
-                          ? 'bg-amber-50 text-amber-600'
+                          ? 'bg-gold-soft text-gold'
                           : 'bg-slate-100 text-slate-600'
                       }`}>
                         {notif.type === 'booking' ? (

@@ -4,6 +4,7 @@ import { Loader2, Eye, Maximize2, Bed, Users, Baby, CheckCircle2, ArrowRight } f
 import { Hotel, RoomType } from '../../../types';
 import { formatCurrency } from '../../../lib/utils';
 import { label, POLICY_TYPE_LABELS, refundTerms } from './policyLabels';
+import { applyImageFallback, ROOM_IMAGE_FALLBACK } from '../../../lib/imageFallback';
 
 export const RoomsTab: React.FC<{
   hotel: Hotel;
@@ -14,8 +15,8 @@ export const RoomsTab: React.FC<{
   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
     <div className="flex items-center justify-between">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">{isID ? 'Pilihan Kamar' : 'Select Your Room'}</h3>
-        <p className="text-[13px] text-slate-400 font-light mt-0.5">
+        <h3 className="text-lg font-semibold text-navy font-serif">{isID ? 'Pilihan kamar' : 'Select your room'}</h3>
+        <p className="text-[13px] text-slate-600 mt-0.5">
           {isID ? `${hotel.rooms.length} tipe kamar tersedia` : `${hotel.rooms.length} room types available`}
         </p>
       </div>
@@ -34,11 +35,12 @@ export const RoomsTab: React.FC<{
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: idx * 0.08 }}
           onClick={() => onSelectRoom(hotel, room)}
-          className="group rounded-2xl border border-slate-100 hover:border-slate-200 bg-white hover:shadow-lg hover:shadow-slate-900/5 transition-all duration-300 overflow-hidden cursor-pointer"
+          className="group rounded-3xl border border-navy-soft hover:border-blue-100 bg-white hover:shadow-[0_16px_40px_rgba(30,58,138,0.1)] transition-all duration-200 overflow-hidden cursor-pointer"
         >
           <div className="flex flex-col sm:flex-row">
             <div className="relative w-full sm:w-56 h-48 sm:h-auto shrink-0 bg-slate-100 overflow-hidden">
               <img src={room.image} alt={room.name}
+                onError={(event) => applyImageFallback(event, ROOM_IMAGE_FALLBACK)}
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
               {room.discountPercentage && (
                 <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-slate-900/90 text-white text-[10px] font-bold">
@@ -57,7 +59,7 @@ export const RoomsTab: React.FC<{
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-[15px] font-semibold text-slate-900">{room.name}</h4>
+                      <h4 className="text-[15px] font-semibold text-navy">{room.name}</h4>
                       {room.viewType && (
                         <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 text-[10px] font-medium flex items-center gap-1">
                           <Eye className="w-3 h-3" />{room.viewType}
@@ -142,7 +144,7 @@ export const RoomsTab: React.FC<{
                     <span className="text-[12px] text-slate-400 line-through font-light block">{formatCurrency(room.originalPrice)}</span>
                   )}
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-xl font-bold text-slate-900">{formatCurrency(room.pricePerNight)}</span>
+                    <span className="text-xl font-semibold text-navy">{formatCurrency(room.pricePerNight)}</span>
                     <span className="text-[12px] text-slate-400 font-light">/ {isID ? 'malam' : 'night'}</span>
                   </div>
                   {room.discountPercentage && (
@@ -155,7 +157,8 @@ export const RoomsTab: React.FC<{
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => onSelectRoom(hotel, room)}
-                  className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-medium transition-colors flex items-center gap-2 shadow-sm"
+                  type="button"
+                  className="min-h-12 px-6 py-3 rounded-xl bg-gold hover:bg-gold-dark text-white text-[13px] font-semibold transition-colors duration-200 flex items-center gap-2 cursor-pointer"
                 >
                   {isID ? 'Lihat Detail' : 'View Details'}
                   <ArrowRight className="w-4 h-4" />

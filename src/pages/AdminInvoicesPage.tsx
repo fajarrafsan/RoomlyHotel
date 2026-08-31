@@ -17,80 +17,6 @@ const STATUS_OPTIONS = (isID: boolean) => [
   { value: 'REFUNDED', label: 'Refunded' },
 ];
 
-const DEMO_INVOICES: InvoiceSummaryResponse[] = [
-  {
-    id: 101,
-    invoiceNumber: 'INV-20260810-0001',
-    bookingId: 1,
-    bookingCode: 'BK-20260810-FE252E89',
-    userId: 1,
-    hotelId: 1,
-    hotelName: 'The Westin Jakarta',
-    customerName: 'Default Admin',
-    invoiceDate: '2026-08-10',
-    checkInDate: '2026-08-10',
-    checkOutDate: '2026-08-11',
-    totalAmount: 2500000,
-    currency: 'IDR',
-    status: 'ISSUED',
-    issuedAt: '2026-08-10T10:00:00Z',
-    createdAt: '2026-08-10T10:00:00Z',
-  },
-  {
-    id: 102,
-    invoiceNumber: 'INV-20260809-0002',
-    bookingId: 2,
-    bookingCode: 'BK-20260809-A82D109C',
-    userId: 2,
-    hotelId: 2,
-    hotelName: 'Amanjiwo Resort',
-    customerName: 'Siti Rahma',
-    invoiceDate: '2026-08-09',
-    checkInDate: '2026-08-12',
-    checkOutDate: '2026-08-15',
-    totalAmount: 4800000,
-    currency: 'IDR',
-    status: 'ISSUED',
-    issuedAt: '2026-08-09T14:30:00Z',
-    createdAt: '2026-08-09T14:30:00Z',
-  },
-  {
-    id: 103,
-    invoiceNumber: 'INV-20260808-0003',
-    bookingId: 3,
-    bookingCode: 'BK-20260808-9C4B21DF',
-    userId: 3,
-    hotelId: 1,
-    hotelName: 'The Westin Jakarta',
-    customerName: 'Budi Santoso',
-    invoiceDate: '2026-08-08',
-    checkInDate: '2026-08-08',
-    checkOutDate: '2026-08-10',
-    totalAmount: 3200000,
-    currency: 'IDR',
-    status: 'DRAFT',
-    issuedAt: null,
-    createdAt: '2026-08-08T09:15:00Z',
-  },
-];
-
-function getFilteredFallbackInvoices(statusFilter?: string, searchFilter?: string): InvoiceSummaryResponse[] {
-  let list = DEMO_INVOICES;
-  if (statusFilter) {
-    list = list.filter((i) => i.status === statusFilter);
-  }
-  if (searchFilter) {
-    const q = searchFilter.toLowerCase();
-    list = list.filter(
-      (i) =>
-        i.bookingCode.toLowerCase().includes(q) ||
-        i.invoiceNumber.toLowerCase().includes(q) ||
-        i.customerName.toLowerCase().includes(q)
-    );
-  }
-  return list;
-}
-
 export const AdminInvoicesPage: React.FC<{ language: Language; onOpenAuth?: () => void }> = ({
   language,
   onOpenAuth,
@@ -120,19 +46,13 @@ export const AdminInvoicesPage: React.FC<{ language: Language; onOpenAuth?: () =
         bookingCode: appliedSearch || undefined,
         size: 50,
       });
-      if (page && page.content && page.content.length > 0) {
-        setInvoices(page.content);
-        setTotalElements(page.totalElements || page.content.length);
-      } else {
-        const fallbacks = getFilteredFallbackInvoices(status, appliedSearch);
-        setInvoices(fallbacks);
-        setTotalElements(fallbacks.length);
-      }
+      const content = page?.content ?? [];
+      setInvoices(content);
+      setTotalElements(page?.totalElements ?? content.length);
     } catch (err) {
-      console.warn('Invoice endpoint lookup failed, using fallback list', err);
-      const fallbacks = getFilteredFallbackInvoices(status, appliedSearch);
-      setInvoices(fallbacks);
-      setTotalElements(fallbacks.length);
+      setInvoices([]);
+      setTotalElements(0);
+      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat invoice.' : 'Failed to load invoices.'));
     } finally {
       setLoading(false);
     }

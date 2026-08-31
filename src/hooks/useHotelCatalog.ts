@@ -48,13 +48,14 @@ async function enrichHotelDetail(hotel: Hotel): Promise<Hotel> {
   const today = getTodayDateString();
   const roomIds = hotel.rooms.map((r) => Number(r.id));
 
-  const [imageResults, policyResults, availResults, reviewsPage, ratingSummary, facilities] = await Promise.all([
+  const [imageResults, policyResults, availResults, reviewsPage, ratingSummary, facilities, hotelImages] = await Promise.all([
     Promise.allSettled(roomIds.map((id) => roomApi.images(id))),
     Promise.allSettled(roomIds.map((id) => roomApi.policiesGrouped(id))),
     Promise.allSettled(roomIds.map((id) => roomApi.availability(id, today, today))),
     reviewApi.byHotel(Number(hotel.id), 0, 20).catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 0 })),
     reviewApi.hotelRatingSummary(Number(hotel.id)).catch(() => null),
     hotelApi.facilities(Number(hotel.id)).catch(() => []),
+    hotelApi.images(Number(hotel.id)).catch(() => []),
   ]);
 
   const enrichedRooms: RoomType[] = hotel.rooms.map((room, idx) => {
@@ -92,13 +93,24 @@ async function enrichHotelDetail(hotel: Hotel): Promise<Hotel> {
     ? facilityList.map((f) => f.name)
     : Array.from(new Set(enrichedRooms.flatMap((r) => r.features))).slice(0, 8);
 
-  // Gallery = the hotel thumbnail plus every room photo, de-duplicated.
+  const orderedHotelImages = [...hotelImages].sort((a, b) => {
+    if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+    return (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+  });
+  const primaryHotelImage = orderedHotelImages[0]?.imageUrl || hotel.image;
+
+  // Put real hotel photography first, then room photography, de-duplicated.
   const gallery = Array.from(
-    new Set([hotel.image, ...enrichedRooms.flatMap((r) => r.images ?? [r.image])])
+    new Set([
+      ...orderedHotelImages.map((item) => item.imageUrl),
+      primaryHotelImage,
+      ...enrichedRooms.flatMap((r) => r.images ?? [r.image]),
+    ])
   ).filter(Boolean).slice(0, 15);
 
   return {
     ...hotel,
+    image: primaryHotelImage,
     rooms: enrichedRooms,
     reviews,
     amenities,

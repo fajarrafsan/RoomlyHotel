@@ -1,6 +1,6 @@
 import { RoomPolicyGroup, RoomType } from '../../types';
 import { RoomImageResponse, RoomPolicyGroupResponse, RoomResponse } from '../../types/api';
-import { FALLBACK_IMAGES, hashToIndex } from './assets';
+import { ROOM_FALLBACK_IMAGES, hashToIndex } from './assets';
 
 export function mapPolicyGroupsToUI(groups: RoomPolicyGroupResponse[]): RoomPolicyGroup[] {
   return groups.map((group) => ({
@@ -38,7 +38,7 @@ export function mapRoomToUI(
     bedType: `${room.totalBeds} Bed${room.totalBeds > 1 ? 's' : ''}`,
     maxOccupancy: room.maxOccupancy,
     pricePerNight: room.basePrice,
-    image: ordered[0]?.imageUrl || FALLBACK_IMAGES[hashToIndex(room.id, FALLBACK_IMAGES.length)],
+    image: ordered[0]?.imageUrl || ROOM_FALLBACK_IMAGES[hashToIndex(room.id, ROOM_FALLBACK_IMAGES.length)],
     features,
     availableRooms,
 

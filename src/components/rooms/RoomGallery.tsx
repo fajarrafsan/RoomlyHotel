@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { applyImageFallback, ROOM_IMAGE_FALLBACK } from '../../lib/imageFallback';
+import { fadeTween } from '../../lib/motion';
 
 interface RoomGalleryProps {
   gallery: string[];
@@ -17,16 +19,27 @@ export const RoomGallery: React.FC<RoomGalleryProps> = ({
 }) => {
   const hasSideThumbs = gallery.length > 1;
 
+  useEffect(() => {
+    if (gallery.length < 2) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') onPrev();
+      if (e.key === 'ArrowRight') onNext();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [gallery.length, onPrev, onNext]);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-      <div className={`relative aspect-[16/10] rounded-3xl overflow-hidden bg-slate-100 ring-1 ring-slate-100 group ${hasSideThumbs ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
+      <div className={`relative aspect-[16/10] rounded-3xl overflow-hidden bg-navy-soft border border-navy-soft group ${hasSideThumbs ? 'lg:col-span-8' : 'lg:col-span-12'}`}>
         <motion.img
           key={activeImage}
-          initial={{ opacity: 0, scale: 1.02 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={fadeTween}
           src={gallery[activeImage]}
           alt={roomName}
+          onError={(event) => applyImageFallback(event, ROOM_IMAGE_FALLBACK)}
           className="w-full h-full object-cover"
         />
 
@@ -36,7 +49,7 @@ export const RoomGallery: React.FC<RoomGalleryProps> = ({
               <button
                 type="button"
                 onClick={onPrev}
-                className="w-9 h-9 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                className="min-w-11 min-h-11 rounded-full bg-white/95 shadow-sm flex items-center justify-center text-navy hover:bg-white transition-colors duration-200 cursor-pointer"
                 aria-label={isID ? 'Foto sebelumnya' : 'Previous photo'}
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -44,13 +57,13 @@ export const RoomGallery: React.FC<RoomGalleryProps> = ({
               <button
                 type="button"
                 onClick={onNext}
-                className="w-9 h-9 rounded-full bg-white/90 backdrop-blur-sm shadow-md flex items-center justify-center text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white"
+                className="min-w-11 min-h-11 rounded-full bg-white/95 shadow-sm flex items-center justify-center text-navy hover:bg-white transition-colors duration-200 cursor-pointer"
                 aria-label={isID ? 'Foto berikutnya' : 'Next photo'}
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-            <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-slate-900/70 backdrop-blur-sm text-white text-[11px] font-semibold">
+            <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-lg bg-navy/80 text-white text-[11px] font-semibold">
               {activeImage + 1} / {gallery.length}
             </span>
           </>
@@ -64,13 +77,20 @@ export const RoomGallery: React.FC<RoomGalleryProps> = ({
               key={idx}
               type="button"
               onClick={() => onSelect(idx)}
-              className={`relative min-h-[96px] lg:h-full rounded-3xl overflow-hidden bg-slate-100 transition-all duration-200 ${
+              aria-label={isID ? `Foto ${idx + 1}` : `Photo ${idx + 1}`}
+              aria-current={idx === activeImage}
+              className={`relative min-h-[96px] min-w-11 lg:h-full rounded-2xl overflow-hidden bg-navy-soft transition-opacity duration-200 cursor-pointer ${
                 idx === activeImage
-                  ? 'ring-2 ring-amber-400 ring-offset-2'
+                  ? 'ring-2 ring-gold ring-offset-2'
                   : 'opacity-75 hover:opacity-100'
               }`}
             >
-              <img src={img} alt="" className="absolute inset-0 w-full h-full object-cover" />
+              <img
+                src={img}
+                alt=""
+                onError={(event) => applyImageFallback(event, ROOM_IMAGE_FALLBACK)}
+                className="absolute inset-0 w-full h-full object-cover"
+              />
             </button>
           ))}
         </div>

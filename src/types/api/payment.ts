@@ -1,5 +1,7 @@
 // ---------- payment-service ----------
 
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'CANCELLED';
+
 export interface CreatePaymentRequest {
   bookingId: number;
   bookingCode: string;
@@ -20,7 +22,7 @@ export interface CreatePaymentResponse {
   gateway: 'MIDTRANS';
   snapToken: string;
   redirectUrl: string;
-  status: string;
+  status: PaymentStatus;
   amount: number;
   currency: string;
   createdAt: string;
@@ -35,7 +37,7 @@ export interface PaymentResponse {
   hotelId: number;
   roomId: number;
   gateway: string | null;
-  status: string;
+  status: PaymentStatus;
   paymentMethod: string | null;
   amount: number;
   currency: string;
@@ -46,4 +48,15 @@ export interface PaymentResponse {
   refundedAt: string | null;
   failureReason: string | null;
   createdAt: string;
+}
+
+/**
+ * Staff refund. The backend only refunds PAID payments whose booking is
+ * CANCELLED / EXPIRED / NO_SHOW; an ADMIN may override an active booking with
+ * `force` plus a non-empty `reason`.
+ */
+export interface RefundPaymentRequest {
+  amount?: number;
+  reason?: string;
+  force?: boolean;
 }

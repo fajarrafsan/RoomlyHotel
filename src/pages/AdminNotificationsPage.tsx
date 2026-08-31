@@ -8,10 +8,11 @@ import {
 } from '../types/api/notification';
 import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
 import { AdminPageShell, AdminTableCard } from '../components/admin/AdminPageShell';
+import { NotificationTemplatesCard } from '../components/admin/NotificationTemplatesCard';
 import { StatusPill } from '../components/admin/StatusPill';
 
 const EVENT_TYPES: NotificationEventType[] = [
-  'BOOKING_CREATED', 'BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'BOOKING_EXPIRED',
+  'BOOKING_CREATED', 'BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'BOOKING_EXPIRED', 'BOOKING_NO_SHOW',
   'PAYMENT_CREATED', 'PAYMENT_SUCCESS', 'PAYMENT_FAILED', 'PAYMENT_EXPIRED', 'PAYMENT_CANCELLED',
   'REFUND_REQUESTED', 'REFUND_SUCCESS', 'REFUND_FAILED',
   'INVOICE_ISSUED', 'INVOICE_VOIDED', 'INVOICE_REFUNDED',
@@ -75,6 +76,18 @@ export const AdminNotificationsPage: React.FC<{ language: Language; onOpenAuth?:
       return;
     }
 
+    const title = form.title.trim();
+    const message = form.message.trim();
+    if ((title && !message) || (!title && message)) {
+      setError(
+        isID
+          ? 'Judul dan pesan harus diisi bersamaan, atau kosongkan keduanya untuk memakai template.'
+          : 'Title and message must both be filled in, or leave both blank to use the template.'
+      );
+      setSuccess(false);
+      return;
+    }
+
     setSending(true);
     setError(null);
     setSuccess(false);
@@ -84,8 +97,8 @@ export const AdminNotificationsPage: React.FC<{ language: Language; onOpenAuth?:
         eventType: form.eventType,
         referenceType: form.referenceType || undefined,
         referenceId: form.referenceId === '' ? undefined : Number(form.referenceId),
-        title: form.title.trim() || undefined,
-        message: form.message.trim() || undefined,
+        title: title || undefined,
+        message: message || undefined,
       });
       setSuccess(true);
       setForm({ ...form, userIds: '', title: '', message: '', referenceId: '' });
@@ -200,6 +213,8 @@ export const AdminNotificationsPage: React.FC<{ language: Language; onOpenAuth?:
             </button>
           </div>
         </form>
+
+        <NotificationTemplatesCard isID={isID} eventTypes={EVENT_TYPES} />
 
         <AdminTableCard
           isID={isID}

@@ -20,38 +20,42 @@ export const BookingFooter: React.FC<BookingFooterProps> = ({
   onSubmit
 }) => {
   return (
-    <div className="p-5 md:p-6 bg-white border-t border-slate-100 flex items-center justify-between shrink-0">
+    <div className="p-4 sm:p-5 bg-white border-t border-navy-soft flex items-center justify-between gap-3">
       {step > 1 ? (
         <button
+          type="button"
           onClick={onBack}
-          className="py-3 px-5 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-600 font-semibold text-sm transition-all duration-200 flex items-center gap-2 border border-slate-200 active:scale-[0.97]"
+          className="min-h-12 px-4 sm:px-5 rounded-xl bg-navy-soft hover:bg-navy-soft/80 text-navy font-semibold text-[14px] transition-colors duration-200 inline-flex items-center gap-2 cursor-pointer"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4" aria-hidden />
           <span>{isID ? 'Kembali' : 'Back'}</span>
         </button>
       ) : <div />}
 
       {step < 3 ? (
         <button
+          type="button"
           onClick={onNext}
           disabled={!canProceed}
-          className="py-3 px-7 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-semibold text-sm shadow-lg shadow-slate-900/10 transition-all duration-200 flex items-center gap-2 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed disabled:active:scale-100 disabled:shadow-none"
+          className="min-h-12 px-6 rounded-xl bg-gold hover:bg-gold-dark text-white font-semibold text-[14px] transition-colors duration-200 inline-flex items-center gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gold"
         >
-          <span>{isID ? 'Lanjutkan' : 'Next Step'}</span>
-          <ArrowRight className="w-4 h-4" />
+          <span>{isID ? 'Lanjutkan' : 'Continue'}</span>
+          <ArrowRight className="w-4 h-4" aria-hidden />
         </button>
       ) : (
         <button
+          type="button"
           onClick={onSubmit}
           disabled={isSubmitting}
-          className="py-3.5 px-8 rounded-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-xl shadow-slate-900/15 transition-all duration-200 flex items-center gap-2.5 active:scale-[0.97] disabled:opacity-40 disabled:shadow-none"
+          aria-busy={isSubmitting}
+          className="min-h-12 px-5 sm:px-6 rounded-xl bg-gold hover:bg-gold-dark text-white font-semibold text-[14px] transition-colors duration-200 inline-flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSubmitting ? (
-            <span className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" aria-hidden />
           ) : (
-            <ShieldCheck className="w-5 h-5" />
+            <ShieldCheck className="w-4 h-4" aria-hidden />
           )}
-          <span>{isID ? 'Konfirmasi & Bayar Sekarang' : 'Confirm & Pay Now'}</span>
+          <span>{isID ? 'Konfirmasi & bayar' : 'Confirm & pay'}</span>
         </button>
       )}
     </div>

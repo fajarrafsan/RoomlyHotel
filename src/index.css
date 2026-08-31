@@ -1,9 +1,57 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,500&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=Jost:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Karla:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500;1,600&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Playfair Display', ui-serif, Georgia, serif;
+  --font-sans: 'Jost', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Bodoni Moda', ui-serif, Georgia, serif;
+  --color-navy: #1E3A8A;
+  --color-navy-dark: #152A66;
+  --color-navy-soft: #E9EEF5;
+  --color-gold: #A16207;
+  --color-gold-dark: #854d06;
+  --color-gold-light: #E4C078;
+  --color-gold-soft: #F6EBD4;
+}
+
+/* Home-only Soft UI tokens — does not change global app chrome */
+.home-luxury,
+.explore-page,
+.auth-modal,
+.settings-page,
+.room-detail-page,
+.booking-checkout {
+  font-family: 'Karla', ui-sans-serif, system-ui, sans-serif;
+  --home-primary: #1E3A8A;
+  --home-accent: #A16207;
+  --home-gold-light: #E4C078;
+  --home-bg: #F8FAFC;
+  --home-muted: #E9EEF5;
+  --home-shadow: 0 12px 40px rgba(30, 58, 138, 0.08);
+}
+
+.home-luxury .font-serif,
+.explore-page .font-serif,
+.auth-modal .font-serif,
+.settings-page .font-serif,
+.room-detail-page .font-serif,
+.booking-checkout .font-serif {
+  font-family: 'Playfair Display', ui-serif, Georgia, serif;
+}
+
+.home-luxury :focus-visible,
+.explore-page :focus-visible,
+.auth-modal :focus-visible,
+.settings-page :focus-visible,
+.room-detail-page :focus-visible,
+.booking-checkout :focus-visible,
+.site-header :focus-visible {
+  outline: 2px solid #1E3A8A;
+  outline-offset: 3px;
+}
+
+.site-header .font-serif,
+.hotel-detail-modal .font-serif {
+  font-family: 'Playfair Display', ui-serif, Georgia, serif;
 }
 
 body {
@@ -13,7 +61,7 @@ body {
 /* ===== Premium Custom Scrollbar ===== */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #f59e0b rgba(241, 245, 249, 0.6);
+  scrollbar-color: #A16207 rgba(241, 245, 249, 0.6);
 }
 
 *::-webkit-scrollbar {
@@ -27,18 +75,18 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #fbbf24, #d97706);
+  background: linear-gradient(180deg, #C9A24A, #A16207);
   border-radius: 999px;
   border: 2.5px solid rgba(248, 250, 252, 0.9);
   transition: background 0.2s ease;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #fcd34d, #f59e0b);
+  background: linear-gradient(180deg, #E4C078, #A16207);
 }
 
 *::-webkit-scrollbar-thumb:active {
-  background: linear-gradient(180deg, #f59e0b, #b45309);
+  background: linear-gradient(180deg, #A16207, #854d06);
 }
 
 *::-webkit-scrollbar-corner {

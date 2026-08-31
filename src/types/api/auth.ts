@@ -18,6 +18,7 @@ export interface AuthResponseDto {
   fullName: string;
   email: string;
   role: Role;
+  hotelId: number | null;
 }
 
 export interface LoginResultDto {
@@ -33,4 +34,5 @@ export interface UserProfileResponseDto {
   fullName: string;
   email: string;
   role: Role;
+  hotelId: number | null;
 }

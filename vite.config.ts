@@ -30,6 +30,7 @@ export default defineConfig(() => {
         '/review-service': { target: 'http://localhost:8080', changeOrigin: true },
         '/notification-service': { target: 'http://localhost:8080', changeOrigin: true },
         '/invoice-service': { target: 'http://localhost:8080', changeOrigin: true },
+        '/housekeeping-service': { target: 'http://localhost:8080', changeOrigin: true },
       },
     },
   };

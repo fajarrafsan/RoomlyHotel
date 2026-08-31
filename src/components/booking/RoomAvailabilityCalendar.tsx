@@ -138,39 +138,38 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
   const previewEnd = checkOutDate || (hoverDate ? startOfDay(new Date(hoverDate)) : null);
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+    <div className="rounded-2xl border border-navy-soft bg-white overflow-hidden">
+      <div className="px-4 py-3 bg-navy-soft/50 border-b border-navy-soft flex items-center justify-between">
         <button
           type="button"
           onClick={goPrevMonth}
           disabled={!canGoPrev}
-          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/70 hover:text-slate-700 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+          aria-label={isID ? 'Bulan sebelumnya' : 'Previous month'}
+          className="min-w-11 min-h-11 rounded-xl text-navy hover:bg-white/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer flex items-center justify-center"
         >
           <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="text-xs font-bold text-slate-800 capitalize">{monthLabel}</span>
+        <span className="font-serif text-[15px] text-navy capitalize">{monthLabel}</span>
         <button
           type="button"
           onClick={goNextMonth}
-          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/70 hover:text-slate-700 transition-colors"
+          aria-label={isID ? 'Bulan berikutnya' : 'Next month'}
+          className="min-w-11 min-h-11 rounded-xl text-navy hover:bg-white/70 transition-colors duration-200 cursor-pointer flex items-center justify-center"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Weekday labels */}
       <div className="grid grid-cols-7 gap-1 px-3 pt-3 pb-1">
         {weekdayLabels.map((w) => (
           <div key={w} className="text-center text-[10px] font-bold uppercase tracking-wider text-slate-400 py-1">{w}</div>
         ))}
       </div>
 
-      {/* Days grid */}
       <div className="grid grid-cols-7 gap-1 p-3 pt-0 relative">
         {loading && (
-          <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10 rounded-b-2xl">
-            <Loader2 className="w-5 h-5 text-slate-900 animate-spin" />
+          <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10 rounded-b-2xl">
+            <Loader2 className="w-5 h-5 text-navy animate-spin" aria-hidden />
           </div>
         )}
 
@@ -190,23 +189,23 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
           let indicator: 'label-in' | 'label-out' | 'dot-open' | 'dot-limited' | null = null;
 
           if (isSelected) {
-            cellClasses = 'bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-md shadow-amber-500/30 ring-1 ring-amber-500/40 cursor-pointer';
+            cellClasses = 'bg-navy text-white cursor-pointer';
             indicator = isCheckIn ? 'label-in' : 'label-out';
           } else if (status === 'past') {
             cellClasses = 'text-slate-300 cursor-not-allowed';
           } else if (status === 'no-data') {
-            cellClasses = 'text-slate-300 cursor-not-allowed border border-dashed border-slate-200';
+            cellClasses = 'text-slate-300 cursor-not-allowed border border-dashed border-navy-soft';
           } else if (status === 'blocked') {
             cellClasses = 'text-rose-400 line-through cursor-not-allowed bg-rose-50/70';
           } else if (status === 'limited') {
             cellClasses = inRange
-              ? 'bg-amber-100/70 text-amber-900 cursor-pointer'
-              : 'bg-amber-50 hover:bg-amber-100 text-amber-800 cursor-pointer hover:scale-[1.05] hover:shadow-md transition-all';
+              ? 'bg-navy-soft text-navy cursor-pointer'
+              : 'bg-gold-soft hover:bg-gold-light/40 text-gold-dark cursor-pointer transition-colors duration-200';
             indicator = inRange ? null : 'dot-limited';
           } else {
             cellClasses = inRange
-              ? 'bg-emerald-100/70 text-emerald-900 cursor-pointer'
-              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 cursor-pointer hover:scale-[1.05] hover:shadow-md transition-all';
+              ? 'bg-navy-soft text-navy cursor-pointer'
+              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 cursor-pointer transition-colors duration-200';
             indicator = inRange ? null : 'dot-open';
           }
 
@@ -218,29 +217,28 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
               onClick={() => handleDayClick(date)}
               onMouseEnter={() => setHoverDate(iso)}
               title={entry ? `${entry.availableInventory}/${entry.totalInventory} ${isID ? 'kamar tersisa' : 'rooms left'}` : (status === 'no-data' ? (isID ? 'Belum ada data ketersediaan' : 'No availability data') : undefined)}
-              className={`relative aspect-square rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-px transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-1 ${isToday ? 'ring-1 ring-inset ring-amber-400/70' : ''} ${cellClasses}`}
+              className={`relative min-h-11 aspect-square rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-px transition-colors duration-200 ${isToday && !isSelected ? 'ring-1 ring-inset ring-gold' : ''} ${cellClasses}`}
             >
-              <span className={isToday ? 'underline decoration-amber-400 underline-offset-2' : ''}>
+              <span className={isToday && !isSelected ? 'underline decoration-gold underline-offset-2' : ''}>
                 {date.getDate()}
               </span>
               {indicator === 'label-in' && <span className="text-[7px] font-bold uppercase tracking-widest opacity-80">{isID ? 'Masuk' : 'In'}</span>}
               {indicator === 'label-out' && <span className="text-[7px] font-bold uppercase tracking-widest opacity-80">{isID ? 'Keluar' : 'Out'}</span>}
               {(indicator === 'dot-open' || indicator === 'dot-limited') && (
-                <span className={`w-1 h-1 rounded-full ${indicator === 'dot-open' ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                <span className={`w-1 h-1 rounded-full ${indicator === 'dot-open' ? 'bg-emerald-500' : 'bg-gold'}`} />
               )}
             </button>
           );
         })}
       </div>
 
-      {/* Legend */}
-      <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/60">
+      <div className="px-4 py-3 border-t border-navy-soft bg-navy-soft/40">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] font-medium text-slate-500">
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />{isID ? 'Tersedia' : 'Available'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-500" />{isID ? 'Terbatas' : 'Limited'}</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gold" />{isID ? 'Terbatas' : 'Limited'}</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-400" />{isID ? 'Penuh / Tutup' : 'Sold out'}</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-300" />{isID ? 'Belum ada data' : 'No data'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400 ring-2 ring-amber-400/30" />{isID ? 'Hari ini' : 'Today'}</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gold ring-2 ring-gold/30" />{isID ? 'Hari ini' : 'Today'}</span>
         </div>
       </div>
 

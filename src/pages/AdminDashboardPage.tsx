@@ -43,6 +43,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     loadAdminData,
     handleCreateStaff,
     handleDeactivateStaff,
+    handleConfirmBooking,
     handleCheckOutGuest,
   } = useAdminData(user, hotels);
 
@@ -208,6 +209,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
             language={language}
             bookings={allBookings}
             onOpenInvoice={onOpenInvoice}
+            onConfirm={handleConfirmBooking}
             onCheckOut={handleCheckOutGuest}
           />
         </>
@@ -251,6 +253,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                   <th className="px-4 py-3">{isID ? 'Nama Staf' : 'Staff Name'}</th>
                   <th className="px-4 py-3">Email</th>
                   <th className="px-4 py-3">{isID ? 'Peran / Jabatan' : 'Role'}</th>
+                  <th className="px-4 py-3">{isID ? 'Cakupan Hotel' : 'Hotel Scope'}</th>
                   <th className="px-4 py-3">{isID ? 'Status' : 'Status'}</th>
                   <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
                 </tr>
@@ -258,7 +261,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
               <tbody className="divide-y divide-slate-50 font-normal text-slate-700">
                 {staffList.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
+                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
                       {staffLoading
                         ? (isID ? 'Memuat daftar staf...' : 'Loading staff...')
                         : (isID ? 'Belum ada staf tambahan.' : 'No staff accounts found.')}
@@ -273,6 +276,13 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
                         <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
                           {staf.role}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                        {staf.role === 'ADMIN'
+                          ? (isID ? 'Semua hotel' : 'All hotels')
+                          : staf.hotelId != null
+                            ? `Hotel #${staf.hotelId}`
+                            : (isID ? 'Belum ditetapkan' : 'Unassigned')}
                       </td>
                       <td className="px-4 py-3">
                         {staf.active ? (
@@ -310,6 +320,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
         isOpen={isStaffModalOpen}
         onClose={() => setIsStaffModalOpen(false)}
         isID={isID}
+        hotels={hotels}
         onSubmit={handleCreateStaff}
       />
     </div>

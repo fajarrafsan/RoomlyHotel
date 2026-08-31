@@ -17,34 +17,34 @@ export const OverviewTab: React.FC<{
 }> = ({ hotel, isID, checkIn, checkOut, anyRefundable, refundPolicies, facilitiesByCategory, mapsUrl, hasCoords }) => (
   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold text-slate-900">{isID ? 'Tentang Properti' : 'About This Property'}</h3>
-      <p className="text-[14px] text-slate-600 font-light leading-[1.8]">{hotel.description}</p>
+      <h3 className="text-lg font-semibold text-navy font-serif">{isID ? 'Tentang properti' : 'About this property'}</h3>
+      <p className="text-[15px] text-slate-600 leading-[1.7]">{hotel.description}</p>
     </div>
 
     {/* Key facts — every one of these is a real field from hotel-service */}
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+      <div className="p-4 rounded-2xl bg-navy-soft/60 border border-navy-soft space-y-2">
         <LogIn className="w-5 h-5 text-slate-700" />
-        <p className="text-[12px] font-semibold text-slate-900">{isID ? 'Check-In' : 'Check-In'}</p>
+        <p className="text-[13px] font-semibold text-navy">{isID ? 'Check-in' : 'Check-in'}</p>
         <p className="text-[11px] text-slate-400 font-light">
           {checkIn ? `${isID ? 'Mulai' : 'From'} ${checkIn}` : (isID ? 'Belum diatur' : 'Not set')}
         </p>
       </div>
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+      <div className="p-4 rounded-2xl bg-navy-soft/60 border border-navy-soft space-y-2">
         <LogOut className="w-5 h-5 text-slate-700" />
-        <p className="text-[12px] font-semibold text-slate-900">{isID ? 'Check-Out' : 'Check-Out'}</p>
+        <p className="text-[13px] font-semibold text-navy">{isID ? 'Check-out' : 'Check-out'}</p>
         <p className="text-[11px] text-slate-400 font-light">
           {checkOut ? `${isID ? 'Sebelum' : 'Before'} ${checkOut}` : (isID ? 'Belum diatur' : 'Not set')}
         </p>
       </div>
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+      <div className="p-4 rounded-2xl bg-navy-soft/60 border border-navy-soft space-y-2">
         <Star className="w-5 h-5 text-slate-700" />
-        <p className="text-[12px] font-semibold text-slate-900">{isID ? 'Kelas Hotel' : 'Hotel Class'}</p>
+        <p className="text-[13px] font-semibold text-navy">{isID ? 'Kelas hotel' : 'Hotel class'}</p>
         <p className="text-[11px] text-slate-400 font-light">{hotel.stars} {isID ? 'bintang' : 'star'}</p>
       </div>
-      <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2">
+      <div className="p-4 rounded-2xl bg-navy-soft/60 border border-navy-soft space-y-2">
         <Ban className="w-5 h-5 text-slate-700" />
-        <p className="text-[12px] font-semibold text-slate-900">{isID ? 'Pembatalan' : 'Cancellation'}</p>
+        <p className="text-[13px] font-semibold text-navy">{isID ? 'Pembatalan' : 'Cancellation'}</p>
         <p className="text-[11px] text-slate-400 font-light">
           {refundPolicies.length === 0
             ? (isID ? 'Cek per kamar' : 'See each room')
@@ -57,8 +57,8 @@ export const OverviewTab: React.FC<{
 
     {/* Amenities — grouped by the category hotel-service assigns them */}
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-slate-900">
-        {isID ? 'Fasilitas & Layanan' : 'Amenities & Services'}
+      <h3 className="text-lg font-semibold text-navy font-serif">
+        {isID ? 'Fasilitas & layanan' : 'Amenities & services'}
         {hotel.facilities?.length ? (
           <span className="ml-2 text-[13px] text-slate-400 font-light">{hotel.facilities.length}</span>
         ) : null}
@@ -105,8 +105,8 @@ export const OverviewTab: React.FC<{
 
     {/* Location — full address + a maps link that actually works */}
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold text-slate-900">{isID ? 'Lokasi' : 'Location'}</h3>
-      <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 space-y-4">
+      <h3 className="text-lg font-semibold text-navy font-serif">{isID ? 'Lokasi' : 'Location'}</h3>
+      <div className="p-5 rounded-2xl bg-navy-soft/60 border border-navy-soft space-y-4">
         <div className="flex items-start gap-3">
           <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
           <div className="space-y-1">
@@ -137,7 +137,7 @@ export const OverviewTab: React.FC<{
     {/* Contact — phone / email / website straight from the property record */}
     {(hotel.phone || hotel.email || hotel.website) && (
       <div className="space-y-3">
-        <h3 className="text-lg font-semibold text-slate-900">{isID ? 'Kontak Properti' : 'Property Contact'}</h3>
+        <h3 className="text-lg font-semibold text-navy font-serif">{isID ? 'Kontak properti' : 'Property contact'}</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {hotel.phone && (
             <a href={`tel:${hotel.phone}`} className="flex items-center gap-3 p-3.5 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors">

@@ -1,7 +1,7 @@
 // ---------- notification-service ----------
 
 export type NotificationEventType =
-  | 'BOOKING_CREATED' | 'BOOKING_CONFIRMED' | 'BOOKING_CANCELLED' | 'BOOKING_EXPIRED'
+  | 'BOOKING_CREATED' | 'BOOKING_CONFIRMED' | 'BOOKING_CANCELLED' | 'BOOKING_EXPIRED' | 'BOOKING_NO_SHOW'
   | 'PAYMENT_CREATED' | 'PAYMENT_SUCCESS' | 'PAYMENT_FAILED' | 'PAYMENT_EXPIRED' | 'PAYMENT_CANCELLED'
   | 'REFUND_REQUESTED' | 'REFUND_SUCCESS' | 'REFUND_FAILED'
   | 'INVOICE_ISSUED' | 'INVOICE_VOIDED' | 'INVOICE_REFUNDED'
@@ -22,6 +22,10 @@ export interface UpdateNotificationPreferenceRequest {
   eventType: NotificationEventType;
   inAppEnabled: boolean;
   emailEnabled: boolean;
+}
+
+export interface UnreadCountResponse {
+  unreadCount: number;
 }
 
 export type NotificationReferenceType =
@@ -52,4 +56,35 @@ export interface NotificationResponse {
   sentAt: string | null;
   deliveryStatus: string;
   createdAt: string;
+}
+
+export type NotificationChannel = 'IN_APP' | 'EMAIL';
+
+/**
+ * Admin-managed message templates. Title and message bodies interpolate
+ * {{placeholder}} tokens filled in from the event payload at send time.
+ */
+export interface NotificationTemplateResponse {
+  id: number;
+  eventType: NotificationEventType;
+  channel: NotificationChannel;
+  titleTemplate: string;
+  messageTemplate: string;
+  isActive: boolean;
+  updatedAt: string | null;
+}
+
+export interface CreateNotificationTemplateRequest {
+  eventType: NotificationEventType;
+  channel: NotificationChannel;
+  titleTemplate: string;
+  messageTemplate: string;
+  isActive?: boolean;
+}
+
+/** PATCH semantics: only the fields present are changed. */
+export interface UpdateNotificationTemplateRequest {
+  titleTemplate?: string;
+  messageTemplate?: string;
+  isActive?: boolean;
 }

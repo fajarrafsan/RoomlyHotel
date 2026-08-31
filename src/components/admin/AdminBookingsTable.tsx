@@ -1,6 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Receipt, UserCheck, LogOut, CheckCircle2, Clock, XCircle, ChevronRight } from 'lucide-react';
+import {
+  Search, Receipt, UserCheck, LogOut, CheckCircle2, Clock, XCircle, ChevronRight,
+  Loader2, AlertCircle, BadgeCheck, Hourglass,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ApiError } from '../../lib/http';
 import { Booking, Language } from '../../types';
 import { formatCurrency, formatDate } from '../../lib/utils';
 
@@ -9,7 +13,8 @@ interface AdminBookingsTableProps {
   language: Language;
   bookings: Booking[];
   onOpenInvoice: (booking: Booking) => void;
-  onCheckOut: (bookingId: string) => void;
+  onConfirm: (bookingId: string) => Promise<void>;
+  onCheckOut: (bookingId: string) => Promise<void>;
 }
 
 export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
@@ -17,11 +22,32 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
   language,
   bookings,
   onOpenInvoice,
+  onConfirm,
   onCheckOut,
 }) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'confirmed' | 'checked-in' | 'completed' | 'cancelled'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'pending' | 'confirmed' | 'checked-in' | 'completed' | 'cancelled'>('ALL');
+  // Row-level busy/error state: a rejected confirm or check-out has to be
+  // visible here, otherwise the click looks like it silently did nothing.
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const runRowAction = async (bookingId: string, action: () => Promise<void>) => {
+    setBusyId(bookingId);
+    setActionError(null);
+    try {
+      await action();
+    } catch (err) {
+      setActionError(
+        err instanceof ApiError
+          ? err.message
+          : isID ? 'Aksi gagal dijalankan. Coba lagi.' : 'The action failed. Please try again.'
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const filteredBookings = useMemo(() => {
     return bookings.filter((b) => {
@@ -39,6 +65,13 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
 
   const getStatusBadge = (status: Booking['status']) => {
     switch (status) {
+      case 'pending':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-100 flex items-center gap-1">
+            <Hourglass className="w-3 h-3" />
+            {isID ? 'Menunggu' : 'Pending'}
+          </span>
+        );
       case 'confirmed':
         return (
           <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1">
@@ -104,6 +137,7 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
             className="w-full sm:w-auto px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 focus:outline-none cursor-pointer"
           >
             <option value="ALL">{isID ? 'Semua Status' : 'All Statuses'}</option>
+            <option value="pending">{isID ? 'Menunggu' : 'Pending'}</option>
             <option value="confirmed">{isID ? 'Terkonfirmasi' : 'Confirmed'}</option>
             <option value="checked-in">{isID ? 'Checked In' : 'Checked In'}</option>
             <option value="completed">{isID ? 'Selesai' : 'Completed'}</option>
@@ -111,6 +145,13 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
           </select>
         </div>
       </div>
+
+      {actionError && (
+        <p role="alert" className="flex items-start gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
+          <span>{actionError}</span>
+        </p>
+      )}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-slate-100 touch-pan-x scrollbar-thin">
@@ -171,7 +212,27 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
 
                   {/* Actions */}
                   <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
-                    {b.status === 'confirmed' && (
+                    {busyId === b.id && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        {isID ? 'Memproses' : 'Processing'}
+                      </span>
+                    )}
+
+                    {/* Manual confirmation for reservations settled outside the
+                        online payment flow (transfer, corporate billing). */}
+                    {busyId !== b.id && b.status === 'pending' && (
+                      <button
+                        onClick={() => runRowAction(b.id, () => onConfirm(b.id))}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] transition-all inline-flex items-center gap-1 shadow-2xs cursor-pointer"
+                        title={isID ? 'Konfirmasi reservasi secara manual' : 'Confirm this reservation manually'}
+                      >
+                        <BadgeCheck className="w-3 h-3" />
+                        <span>{isID ? 'Konfirmasi' : 'Confirm'}</span>
+                      </button>
+                    )}
+
+                    {busyId !== b.id && b.status === 'confirmed' && (
                       <button
                         onClick={() => navigate('/staff/check-in')}
                         className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] transition-all inline-flex items-center gap-1 shadow-2xs cursor-pointer"
@@ -182,9 +243,9 @@ export const AdminBookingsTable: React.FC<AdminBookingsTableProps> = ({
                       </button>
                     )}
 
-                    {b.status === 'checked-in' && (
+                    {busyId !== b.id && b.status === 'checked-in' && (
                       <button
-                        onClick={() => onCheckOut(b.id)}
+                        onClick={() => runRowAction(b.id, () => onCheckOut(b.id))}
                         className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] transition-all inline-flex items-center gap-1 shadow-2xs cursor-pointer"
                         title={isID ? 'Proses Check-Out' : 'Process Check-Out'}
                       >

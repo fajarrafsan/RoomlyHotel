@@ -20,6 +20,9 @@ interface RoomDetailGridProps {
   specialPrices: RoomPriceResponse[];
 }
 
+const cardClass = 'p-5 rounded-2xl bg-white border border-navy-soft shadow-[0_8px_28px_rgba(30,58,138,0.06)] space-y-3';
+const iconWrap = 'w-9 h-9 rounded-xl bg-navy-soft flex items-center justify-center';
+
 export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
   isID, loading, compositionByArea, amenityGroups, groupedPolicies, specialPrices,
 }) => {
@@ -38,13 +41,10 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
       {Object.entries(compositionByArea).map(([areaType, items]) => {
         const AreaIcon = AREA_TYPE_ICONS[areaType as keyof typeof AREA_TYPE_ICONS];
         return (
-          <div
-            key={`comp-${areaType}`}
-            className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-slate-200 hover:shadow-md transition-all space-y-3"
-          >
-            <div className="flex items-center gap-2.5 text-[13px] font-semibold text-slate-800">
-              <span className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
-                <AreaIcon className="w-4 h-4 text-slate-500" />
+          <div key={`comp-${areaType}`} className={cardClass}>
+            <div className="flex items-center gap-2.5 text-[13px] font-semibold text-navy">
+              <span className={iconWrap}>
+                <AreaIcon className="w-4 h-4 text-gold" aria-hidden />
               </span>
               {label(AREA_TYPE_LABELS as Record<string, { id: string; en: string }>, areaType, isID)}
             </div>
@@ -52,13 +52,13 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
               {items.map((item) => {
                 const ItemIcon = ITEM_TYPE_ICONS[item.itemType];
                 return (
-                  <div key={item.id} className="flex items-center gap-2 text-[13px] text-slate-500 font-light">
-                    <ItemIcon className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                  <div key={item.id} className="flex items-center gap-2 text-[13px] text-slate-600">
+                    <ItemIcon className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                     <span>
                       {item.quantity > 1 ? `${item.quantity}x ` : ''}
                       {label(ITEM_TYPE_LABELS as Record<string, { id: string; en: string }>, item.itemType, isID)}
                       {item.isOptional && (
-                        <span className="text-slate-300"> ({isID ? 'opsional' : 'optional'})</span>
+                        <span className="text-slate-400"> ({isID ? 'opsional' : 'optional'})</span>
                       )}
                     </span>
                   </div>
@@ -70,13 +70,10 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
       })}
 
       {amenityGroups.map((group) => (
-        <div
-          key={`amen-${group.amenityGroup}`}
-          className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-slate-200 hover:shadow-md transition-all space-y-3"
-        >
-          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-slate-800">
-            <span className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-slate-500" />
+        <div key={`amen-${group.amenityGroup}`} className={cardClass}>
+          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-navy">
+            <span className={iconWrap}>
+              <Sparkles className="w-4 h-4 text-gold" aria-hidden />
             </span>
             {label(AMENITY_GROUP_LABELS as Record<string, { id: string; en: string }>, group.amenityGroup, isID)}
           </div>
@@ -86,10 +83,10 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
               return (
                 <div
                   key={am.amenityId}
-                  className="flex items-center gap-2 text-[13px] text-slate-500 font-light"
+                  className="flex items-center gap-2 text-[13px] text-slate-600"
                   title={am.description || undefined}
                 >
-                  <Icon className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+                  <Icon className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                   <span className="truncate">{am.amenityName}</span>
                 </div>
               );
@@ -99,27 +96,24 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
       ))}
 
       {groupedPolicies.map((group) => (
-        <div
-          key={`pol-${group.policyType}`}
-          className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-slate-200 hover:shadow-md transition-all space-y-3"
-        >
-          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-slate-800">
-            <span className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-slate-500" />
+        <div key={`pol-${group.policyType}`} className={cardClass}>
+          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-navy">
+            <span className={iconWrap}>
+              <FileText className="w-4 h-4 text-gold" aria-hidden />
             </span>
             {label(POLICY_TYPE_LABELS, group.policyType, isID)}
           </div>
           <div className="space-y-2 pl-[42px]">
             {group.items.map((p) => (
               <div key={p.id} className="space-y-0.5">
-                <span className="text-slate-700 font-light text-[13px]">{p.title}</span>
+                <span className="text-navy text-[13px]">{p.title}</span>
                 {group.policyType === 'REFUND' && refundTerms(p, isID) && (
-                  <span className={`block font-medium ${p.isRefundable === false ? 'text-rose-500' : 'text-emerald-600'}`}>
+                  <span className={`block font-medium text-[12px] ${p.isRefundable === false ? 'text-rose-600' : 'text-emerald-700'}`}>
                     {refundTerms(p, isID)}
                   </span>
                 )}
                 {p.description && (
-                  <p className="text-[12px] text-slate-400 font-light leading-relaxed">{p.description}</p>
+                  <p className="text-[12px] text-slate-500 leading-relaxed">{p.description}</p>
                 )}
               </div>
             ))}
@@ -128,24 +122,24 @@ export const RoomDetailGrid: React.FC<RoomDetailGridProps> = ({
       ))}
 
       {specialPrices.length > 0 && (
-        <div className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm hover:border-slate-200 hover:shadow-md transition-all space-y-3">
-          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-slate-800">
-            <span className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center">
-              <BadgePercent className="w-4 h-4 text-slate-500" />
+        <div className={cardClass}>
+          <div className="flex items-center gap-2.5 text-[13px] font-semibold text-navy">
+            <span className={iconWrap}>
+              <BadgePercent className="w-4 h-4 text-gold" aria-hidden />
             </span>
-            {isID ? 'Harga Khusus' : 'Special Rates'}
+            {isID ? 'Harga khusus' : 'Special rates'}
           </div>
           <div className="space-y-2 pl-[42px]">
             {specialPrices.map((p) => (
               <div key={p.id} className="flex items-center justify-between gap-2 text-[13px]">
                 <div className="min-w-0 space-y-0.5">
-                  <span className="font-semibold text-slate-800">
+                  <span className="font-semibold text-navy">
                     {formatDate(p.startDate, isID ? 'ID' : 'EN')}
                     {p.endDate !== p.startDate ? ` – ${formatDate(p.endDate, isID ? 'ID' : 'EN')}` : ''}
                   </span>
-                  {p.notes && <span className="text-slate-400 font-light block text-[12px] truncate">{p.notes}</span>}
+                  {p.notes && <span className="text-slate-500 block text-[12px] truncate">{p.notes}</span>}
                 </div>
-                <span className="font-bold text-slate-900 whitespace-nowrap">{formatCurrency(p.pricePerNight)}</span>
+                <span className="font-semibold text-navy whitespace-nowrap">{formatCurrency(p.pricePerNight)}</span>
               </div>
             ))}
           </div>
@@ -161,23 +155,19 @@ export const RoomDetailGridSkeleton: React.FC = () => (
       {[0, 1, 2, 3].map((i) => (
         <div
           key={i}
-          className="p-5 rounded-2xl bg-white border border-slate-100 shadow-sm space-y-4"
+          className="p-5 rounded-2xl bg-white border border-navy-soft space-y-4"
         >
           <div className="flex items-center gap-2.5">
-            <span className="w-8 h-8 rounded-xl bg-slate-100 animate-pulse shrink-0" />
-            <span className="w-32 h-3 rounded-full bg-slate-100 animate-pulse" />
+            <span className="w-9 h-9 rounded-xl bg-navy-soft animate-pulse shrink-0" />
+            <span className="w-32 h-3 rounded-full bg-navy-soft animate-pulse" />
           </div>
           <div className="space-y-2.5 pl-[42px]">
-            <span className="block w-full h-2.5 rounded-full bg-slate-100 animate-pulse" />
-            <span className="block w-3/4 h-2.5 rounded-full bg-slate-100 animate-pulse" />
-            <span className="block w-5/6 h-2.5 rounded-full bg-slate-100 animate-pulse" />
+            <span className="block w-full h-2.5 rounded-full bg-navy-soft animate-pulse" />
+            <span className="block w-3/4 h-2.5 rounded-full bg-navy-soft animate-pulse" />
+            <span className="block w-5/6 h-2.5 rounded-full bg-navy-soft animate-pulse" />
           </div>
         </div>
       ))}
-    </div>
-    <div className="flex items-center gap-3 px-1">
-      <span className="w-5 h-5 rounded-lg bg-slate-100 animate-pulse" />
-      <span className="w-40 h-2.5 rounded-full bg-slate-100 animate-pulse" />
     </div>
   </div>
 );

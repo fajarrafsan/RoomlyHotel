@@ -14,6 +14,7 @@ export const EVENT_TYPE_LABELS: Record<NotificationEventType, { id: string; en: 
   BOOKING_CONFIRMED: { id: 'Pesanan Dikonfirmasi', en: 'Booking Confirmed' },
   BOOKING_CANCELLED: { id: 'Pesanan Dibatalkan', en: 'Booking Cancelled' },
   BOOKING_EXPIRED: { id: 'Pesanan Kedaluwarsa', en: 'Booking Expired' },
+  BOOKING_NO_SHOW: { id: 'Tamu Tidak Hadir', en: 'Guest No-show' },
   PAYMENT_CREATED: { id: 'Pembayaran Dibuat', en: 'Payment Created' },
   PAYMENT_SUCCESS: { id: 'Pembayaran Berhasil', en: 'Payment Successful' },
   PAYMENT_FAILED: { id: 'Pembayaran Gagal', en: 'Payment Failed' },

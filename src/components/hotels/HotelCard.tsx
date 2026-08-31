@@ -41,7 +41,7 @@ export const HotelCard: React.FC<HotelCardProps> = React.memo(({
       onClick={() => onSelect(hotel)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => { setIsHovered(false); setCurrentImgIndex(0); }}
-      className="group cursor-pointer flex flex-col will-change-transform transform-gpu hover:-translate-y-1 transition-transform duration-300 ease-out"
+      className="group cursor-pointer flex flex-col rounded-3xl bg-white border border-navy-soft overflow-hidden shadow-[0_8px_28px_rgba(30,58,138,0.06)] hover:shadow-[0_16px_40px_rgba(30,58,138,0.12)] will-change-transform transform-gpu hover:-translate-y-1 transition-all duration-200 ease-out"
     >
       <HotelCardImage
         hotel={hotel}
@@ -69,6 +69,8 @@ export const HotelCard: React.FC<HotelCardProps> = React.memo(({
     prevProps.language === nextProps.language &&
     prevProps.index === nextProps.index &&
     prevProps.hotel.pricePerNight === nextProps.hotel.pricePerNight &&
-    prevProps.hotel.rating === nextProps.hotel.rating
+    prevProps.hotel.rating === nextProps.hotel.rating &&
+    prevProps.hotel.image === nextProps.hotel.image &&
+    prevProps.hotel.gallery === nextProps.hotel.gallery
   );
 });

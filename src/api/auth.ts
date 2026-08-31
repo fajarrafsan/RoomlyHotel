@@ -18,5 +18,5 @@ export const authApi = {
   // instead of tokens, and this completes the login once the emailed code is entered.
   verifyAdminOtp: (email: string, otp: string) => http.post<LoginResultDto>(`${BASE}/admin/verify-otp`, { email, otp }),
   logout: () => http.post<void>(`${BASE}/logout`),
-  me: () => http.get<UserProfileResponseDto>(`${BASE}/me`).catch(() => null),
+  me: () => http.get<UserProfileResponseDto>(`${BASE}/me`),
 };

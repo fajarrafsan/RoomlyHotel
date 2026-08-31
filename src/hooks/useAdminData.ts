@@ -127,7 +127,24 @@ export function useAdminData(user: AuthUser | null, hotels: Hotel[]) {
   const handleDeactivateStaff = async (staffId: number) => {
     await adminApi.deactivateStaff(staffId);
     setStaffList((prev) =>
-      prev.map((s) => (s.id === staffId ? { ...s, active: false } : s))
+      prev.map((s) => (s.id === staffId ? { ...s, active: false, status: 'INACTIVE' } : s))
+    );
+  };
+
+  // Manual confirmation for reservations that never completed an online
+  // payment (bank transfer settled at the desk, corporate billing). The
+  // backend flips the booking to CONFIRMED/PAID, so mirror both fields here
+  // instead of guessing a partial state.
+  const handleConfirmBooking = async (bookingId: string) => {
+    const numericId = Number(bookingId);
+    if (!Number.isFinite(numericId)) return;
+    const confirmed = await adminApi.confirmBooking(numericId);
+    setAllBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? { ...b, status: 'confirmed', paymentStatus: confirmed.paymentStatus === 'PAID' ? 'paid' : b.paymentStatus }
+          : b
+      )
     );
   };
 
@@ -153,6 +170,7 @@ export function useAdminData(user: AuthUser | null, hotels: Hotel[]) {
     loadAdminData,
     handleCreateStaff,
     handleDeactivateStaff,
+    handleConfirmBooking,
     handleCheckOutGuest,
   };
 }

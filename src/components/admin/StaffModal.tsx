@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, UserPlus, Shield, Mail, Lock, User, Loader2, AlertCircle } from 'lucide-react';
+import { X, UserPlus, Shield, Mail, Lock, User, Loader2, AlertCircle, Building2 } from 'lucide-react';
 import { Role } from '../../types/api/auth';
 import { CreateStaffRequestDto } from '../../api/admin';
 
@@ -8,7 +8,8 @@ interface StaffModalProps {
   isOpen: boolean;
   onClose: () => void;
   isID: boolean;
-  onSubmit: (payload: CreateStaffRequestDto) => Promise<any>;
+  hotels: Array<{ id: string; name: string }>;
+  onSubmit: (payload: CreateStaffRequestDto) => Promise<unknown>;
 }
 
 const ROLE_OPTIONS: { role: Role; labelId: string; labelEn: string; descId: string; descEn: string }[] = [
@@ -46,34 +47,52 @@ export const StaffModal: React.FC<StaffModalProps> = ({
   isOpen,
   onClose,
   isID,
+  hotels,
   onSubmit,
 }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('RECEPTIONIST');
+  const [hotelId, setHotelId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const requiresHotelId = role !== 'ADMIN';
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !password) {
+    if (!fullName.trim() || !email.trim() || !password) {
       setError(isID ? 'Semua bidang wajib diisi.' : 'All fields are required.');
+      return;
+    }
+
+    const parsedHotelId = Number(hotelId);
+    if (requiresHotelId && (!Number.isInteger(parsedHotelId) || parsedHotelId <= 0)) {
+      setError(isID ? 'ID hotel wajib berupa angka positif.' : 'Hotel ID must be a positive whole number.');
       return;
     }
 
     setLoading(true);
     setError(null);
     try {
-      await onSubmit({ fullName, email, password, role });
+      await onSubmit({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        password,
+        role,
+        ...(requiresHotelId ? { hotelId: parsedHotelId } : {}),
+      });
       setFullName('');
       setEmail('');
       setPassword('');
+      setHotelId('');
+      setRole('RECEPTIONIST');
       onClose();
-    } catch (err: any) {
-      setError(err?.message || (isID ? 'Gagal menambah staf baru.' : 'Failed to add new staff.'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : (isID ? 'Gagal menambah staf baru.' : 'Failed to add new staff.'));
     } finally {
       setLoading(false);
     }
@@ -182,7 +201,11 @@ export const StaffModal: React.FC<StaffModalProps> = ({
                 {ROLE_OPTIONS.map((opt) => (
                   <div
                     key={opt.role}
-                    onClick={() => setRole(opt.role)}
+                    onClick={() => {
+                      setRole(opt.role);
+                      setError(null);
+                      if (opt.role === 'ADMIN') setHotelId('');
+                    }}
                     className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
                       role === opt.role
                         ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
@@ -201,6 +224,44 @@ export const StaffModal: React.FC<StaffModalProps> = ({
               </div>
             </div>
 
+            {requiresHotelId ? (
+              <div>
+                <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1">
+                  {isID ? 'ID Hotel Penugasan' : 'Assigned Hotel ID'}
+                </label>
+                <div className="relative">
+                  <Building2 className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                    required
+                    value={hotelId}
+                    onChange={(e) => setHotelId(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900/10 appearance-none"
+                  >
+                    <option value="">{isID ? 'Pilih hotel...' : 'Select a hotel...'}</option>
+                    {hotels.map((hotel) => (
+                      <option key={hotel.id} value={hotel.id}>{hotel.name} (#{hotel.id})</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                  {hotels.length === 0
+                    ? (isID ? 'Belum ada hotel yang dapat ditugaskan.' : 'No hotel is available for assignment yet.')
+                    : (isID
+                        ? 'Staf operasional hanya dapat mengakses pekerjaan untuk hotel ini.'
+                        : 'Operational staff can only access work for this hotel.')}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100 text-amber-800">
+                <Shield className="w-4 h-4 mt-0.5 shrink-0" />
+                <p className="text-[11px] leading-relaxed">
+                  {isID
+                    ? 'ADMIN memiliki akses global dan tidak ditugaskan ke satu hotel.'
+                    : 'ADMIN has system-wide access and is not assigned to one hotel.'}
+                </p>
+              </div>
+            )}
+
             <div className="pt-2 flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -211,7 +272,7 @@ export const StaffModal: React.FC<StaffModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (requiresHotelId && hotels.length === 0)}
                 className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
               >
                 {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

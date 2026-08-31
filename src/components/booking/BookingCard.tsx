@@ -1,12 +1,14 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { Link } from 'react-router-dom';
 import {
   CalendarDays, FileText, MapPin, CheckCircle2, Clock, Plane, Ban,
-  ArrowUpRight, ArrowRight, Bed, Users, Wallet, CreditCard, Moon, UtensilsCrossed
+  ArrowUpRight, ArrowRight, Bed, Users, Wallet, CreditCard, Moon, UtensilsCrossed, RefreshCcw
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Booking } from '../../types';
 import { formatCurrency, formatDate } from '../../lib/utils';
+import { applyImageFallback } from '../../lib/imageFallback';
 
 interface BookingCardProps {
   booking: Booking;
@@ -14,6 +16,7 @@ interface BookingCardProps {
   index?: number;
   onOpenInvoice: (booking: Booking) => void;
   onCancelBooking: (bookingId: string) => void;
+  onViewCancellation: (bookingId: string) => void;
 }
 
 const STATUS_STRIP: Record<Booking['status'], string> = {
@@ -25,7 +28,7 @@ const STATUS_STRIP: Record<Booking['status'], string> = {
 };
 
 export const BookingCard: React.FC<BookingCardProps> = ({
-  booking, isID, index = 0, onOpenInvoice, onCancelBooking,
+  booking, isID, index = 0, onOpenInvoice, onCancelBooking, onViewCancellation,
 }) => (
   <motion.div
     key={booking.id}
@@ -71,6 +74,7 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           <img
             src={booking.hotelImage}
             alt={booking.hotelName}
+            onError={applyImageFallback}
             className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
           />
         </div>
@@ -140,6 +144,18 @@ export const BookingCard: React.FC<BookingCardProps> = ({
       <PaymentStatus booking={booking} isID={isID} />
 
       <div className="flex items-center gap-2.5 w-full sm:w-auto">
+        {booking.status === 'pending'
+          && booking.roomId
+          && ['unpaid', 'pending', 'failed'].includes(booking.paymentStatus) && (
+          <Link
+            to={`/booking/${booking.hotelId}/${booking.roomId}?resumeBookingId=${booking.id}`}
+            className="min-h-11 px-4 py-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 text-[12px] font-semibold transition-all duration-200 flex items-center gap-1.5"
+          >
+            <RefreshCcw className="w-3.5 h-3.5" />
+            {isID ? 'Lanjutkan Pembayaran' : 'Resume Payment'}
+          </Link>
+        )}
+
         {(booking.status === 'confirmed' || booking.status === 'pending') && (
           <button
             onClick={() => onCancelBooking(booking.id)}
@@ -147,6 +163,16 @@ export const BookingCard: React.FC<BookingCardProps> = ({
           >
             <Ban className="w-3.5 h-3.5" />
             {isID ? 'Batalkan' : 'Cancel'}
+          </button>
+        )}
+
+        {booking.status === 'cancelled' && (
+          <button
+            onClick={() => onViewCancellation(booking.id)}
+            className="min-h-11 px-4 py-2.5 rounded-xl border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 text-[12px] font-semibold transition-all duration-200 flex items-center gap-1.5"
+          >
+            <Ban className="w-3.5 h-3.5" />
+            {isID ? 'Rincian Pembatalan' : 'Cancellation Details'}
           </button>
         )}
 
@@ -224,13 +250,25 @@ export const PaymentStatus: React.FC<{ booking: Booking; isID: boolean }> = ({ b
       </span>
     );
   }
-  if (paymentStatus === 'pending') {
+  if (paymentStatus === 'refunded') {
+    return (
+      <span className="inline-flex items-center gap-2 text-[12px] font-medium text-violet-700">
+        <span className="w-6 h-6 rounded-lg bg-violet-50 border border-violet-100 flex items-center justify-center">
+          <CheckCircle2 className="w-3.5 h-3.5 text-violet-500" />
+        </span>
+        {isID ? 'Dana sudah dikembalikan' : 'Payment refunded'}
+      </span>
+    );
+  }
+  if (paymentStatus === 'pending' || paymentStatus === 'unpaid') {
     return (
       <span className="inline-flex items-center gap-2 text-[12px] font-medium text-amber-700">
         <span className="w-6 h-6 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center">
           <Clock className="w-3.5 h-3.5 text-amber-500" />
         </span>
-        {isID ? 'Menunggu pembayaran' : 'Payment pending'}
+        {paymentStatus === 'unpaid'
+          ? (isID ? 'Belum dibayar' : 'Not paid yet')
+          : (isID ? 'Menunggu pembayaran' : 'Payment pending')}
       </span>
     );
   }
@@ -239,7 +277,11 @@ export const PaymentStatus: React.FC<{ booking: Booking; isID: boolean }> = ({ b
       <span className="w-6 h-6 rounded-lg bg-rose-50 border border-rose-100 flex items-center justify-center">
         <Ban className="w-3.5 h-3.5 text-rose-500" />
       </span>
-      {isID ? 'Pengembalian dana diproses' : 'Refund in progress'}
+      {paymentStatus === 'failed'
+        ? (isID ? 'Pembayaran gagal' : 'Payment failed')
+        : paymentStatus === 'expired'
+          ? (isID ? 'Sesi pembayaran berakhir' : 'Payment session expired')
+          : (isID ? 'Pembayaran dibatalkan' : 'Payment cancelled')}
     </span>
   );
 };

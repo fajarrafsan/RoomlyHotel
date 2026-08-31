@@ -1,17 +1,47 @@
 import { Hotel } from '../../types';
 
-// Roomly's public catalog doesn't carry photography or a marketing "category" axis
-// (hotel-service only ships a thumbnailUrl that's frequently unseeded, and there is
-// no hotel-category concept in the backend at all). These curated stock photos and a
-// deterministic category rotation keep the UI's existing visual language intact
-// without ever claiming a hotel has a feature the API didn't actually return.
+// These files ship with the frontend, so a missing API image still renders in
+// offline development and production builds without relying on hotlinking.
 export const FALLBACK_IMAGES = [
-  'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80',
-  'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=1200&q=80',
-  'https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=1200&q=80',
-  'https://images.unsplash.com/photo-1582719508461-905c673771fd?auto=format&fit=crop&w=1200&q=80',
-  'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=1200&q=80',
-  'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1200&q=80',
+  '/images/seed/hotels/mulia.jpg',
+  '/images/seed/hotels/ayana.jpg',
+  '/images/seed/hotels/tentrem.jpg',
+  '/images/seed/hotels/marriott-medan.jpg',
+  '/images/seed/hotels/westin-surabaya.jpg',
+  '/images/seed/hotels/oberoi-lombok.jpg',
+  '/images/seed/hotels/plataran-borobudur.jpg',
+  '/images/seed/hotels/aston-makassar.jpg',
+  '/images/seed/hotels/kempinski-jakarta.jpg',
+  '/images/seed/hotels/maya-ubud.jpg',
+  '/images/seed/hotels/arunika-bandung.png',
+  '/images/seed/hotels/samudra-belitung.png',
+  '/images/seed/hotels/mahakam-samarinda.png',
+  '/images/seed/hotels/tanjung-bunga-manado.png',
+  '/images/seed/hotels/pusako-bukittinggi.png',
+  '/images/seed/hotels/cendana-kupang.png',
+  '/images/seed/hotels/ambon-bay.png',
+  '/images/seed/hotels/cenderawasih-jayapura.png',
+  '/images/seed/hotels/borneo-pontianak.png',
+  '/images/seed/hotels/sriwijaya-palembang.png',
+  '/images/seed/hotels/krakatau-lampung.png',
+  '/images/seed/hotels/batam-marina.png',
+  '/images/seed/hotels/adikara-solo.png',
+  '/images/seed/hotels/malang-highland.png',
+  '/images/seed/hotels/ijen-banyuwangi.png',
+  '/images/seed/hotels/spice-island-ternate.png',
+  '/images/seed/hotels/coral-bay-kendari.png',
+  '/images/seed/hotels/serambi-aceh.png',
+  '/images/seed/hotels/lancang-kuning-pekanbaru.png',
+  '/images/seed/hotels/mandalika-sagara.png',
+];
+
+export const ROOM_FALLBACK_IMAGES = [
+  '/images/seed/rooms/standard-1.jpg',
+  '/images/seed/rooms/deluxe-1.jpg',
+  '/images/seed/rooms/executive-1.jpg',
+  '/images/seed/rooms/suite-1.jpg',
+  '/images/seed/rooms/villa-1.jpg',
+  '/images/seed/rooms/apartment-1.jpg',
 ];
 
 export const AVATAR_IMAGES = [

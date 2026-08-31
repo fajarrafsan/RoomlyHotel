@@ -24,6 +24,7 @@ import { InvoiceItemType } from '../../types/api';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import { useInvoice } from './useInvoice';
 import { InvoiceSkeleton } from './InvoiceSkeleton';
+import { applyImageFallback } from '../../lib/imageFallback';
 
 interface InvoiceModalProps {
   booking: Booking | null;
@@ -55,6 +56,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ booking, onClose, la
 
   const statusConfig = invoice ? (STATUS_CONFIG[invoice.status] || STATUS_CONFIG.DRAFT) : null;
   const issuedOn = invoice?.issuedAt || invoice?.createdAt;
+  const isConfirmedBooking = ['confirmed', 'checked-in', 'completed'].includes(booking.status);
 
   return (
     <motion.div
@@ -86,7 +88,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ booking, onClose, la
               </span>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                  {isID ? 'Struk Resmi' : 'Official Receipt'}
+                  {invoice
+                    ? (isID ? 'Struk Resmi' : 'Official Receipt')
+                    : (isID ? 'Dokumen Reservasi' : 'Booking Document')}
                 </p>
                 <h3 className="font-serif text-lg text-slate-950 tracking-tight leading-tight mt-0.5">
                   {invoice ? invoice.invoiceNumber : `${isID ? 'Booking' : 'Booking'} ${booking.bookingCode}`}
@@ -134,6 +138,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ booking, onClose, la
                 <img
                   src={booking.hotelImage}
                   alt={booking.hotelName}
+                  onError={applyImageFallback}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -371,10 +376,14 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({ booking, onClose, la
         {/* ===== Footer ===== */}
         <div className="px-5 py-3.5 bg-white border-t border-slate-100 flex flex-row items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-light">
-            <span className="w-4 h-4 rounded-md bg-emerald-50 flex items-center justify-center">
-              <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+            <span className={`w-4 h-4 rounded-md flex items-center justify-center ${isConfirmedBooking ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+              {isConfirmedBooking
+                ? <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                : <Clock className="w-3 h-3 text-amber-600" />}
             </span>
-            {isID ? 'Pemesanan terkonfirmasi' : 'Booking confirmed'}
+            {isConfirmedBooking
+              ? (isID ? 'Pemesanan terkonfirmasi' : 'Booking confirmed')
+              : `${isID ? 'Status pemesanan' : 'Booking status'}: ${booking.status.replace(/-/g, ' ')}`}
           </div>
 
           <div className="flex items-center gap-2">

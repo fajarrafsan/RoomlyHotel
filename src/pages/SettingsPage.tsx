@@ -1,29 +1,40 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence, LayoutGroup, useReducedMotion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import {
-  User, Bell, Mail, Languages, Loader2, AlertCircle, BadgeCheck, Hash
+  User, Bell, Mail, Languages, Loader2, AlertCircle, BadgeCheck, Hash, LogOut, LogIn
 } from 'lucide-react';
 import { Language } from '../types';
 import { NotificationEventType, NotificationPreferenceResponse } from '../types/api';
 import { useAuth } from '../context/AuthContext';
 import { notificationPreferenceApi } from '../api/notifications';
-import { GUEST_EVENT_GROUPS, EVENT_TYPE_LABELS, ROLE_LABELS, NotificationEventGroup } from '../lib/notificationLabels';
+import { GUEST_EVENT_GROUPS, EVENT_TYPE_LABELS, ROLE_LABELS } from '../lib/notificationLabels';
+import { fadeTween, pillTween } from '../lib/motion';
 
 interface SettingsPageProps {
   language: Language;
   onLanguageChange: (lang: Language) => void;
+  onOpenAuth?: () => void;
 }
 
 const DEFAULT_PREF = { inAppEnabled: true, emailEnabled: true };
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ language, onLanguageChange }) => {
+function initials(name: string) {
+  return name.split(' ').map((n) => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || 'R';
+}
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ language, onLanguageChange, onOpenAuth }) => {
   const isID = language === 'ID';
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
 
   const [prefs, setPrefs] = useState<Map<NotificationEventType, { inAppEnabled: boolean; emailEnabled: boolean }>>(new Map());
   const [loadingPrefs, setLoadingPrefs] = useState(true);
   const [prefsError, setPrefsError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [activeGroupKey, setActiveGroupKey] = useState(GUEST_EVENT_GROUPS[0].title.en);
 
   useEffect(() => {
     if (!user) {
@@ -68,236 +79,341 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ language, onLanguage
     }
   };
 
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+      navigate('/');
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
+  const roleLabel = user
+    ? (ROLE_LABELS[user.role] ? (isID ? ROLE_LABELS[user.role].id : ROLE_LABELS[user.role].en) : user.role)
+    : '';
+
+  const profileFields = user
+    ? [
+        { icon: User, label: isID ? 'Nama lengkap' : 'Full name', value: user.fullName },
+        { icon: Mail, label: 'Email', value: user.email },
+        { icon: BadgeCheck, label: isID ? 'Peran' : 'Role', value: roleLabel },
+        { icon: Hash, label: isID ? 'ID anggota' : 'Member ID', value: `#${user.userId}` },
+      ]
+    : [];
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6 sm:space-y-8 pb-20 px-2 sm:px-0">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="space-y-1.5 sm:space-y-2 px-2 sm:px-0"
+    <div className="settings-page max-w-3xl mx-auto space-y-6 sm:space-y-8 pb-20">
+      <motion.header
+        initial={reduceMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={fadeTween}
+        className="space-y-1.5"
       >
-        <h1 className="text-2xl sm:text-3xl font-semibold text-slate-950 tracking-tight">
+        <p className="text-[12px] font-semibold tracking-[0.16em] uppercase text-gold">
+          {isID ? 'Akun' : 'Account'}
+        </p>
+        <h1 className="font-serif text-3xl sm:text-4xl text-navy tracking-tight leading-tight">
           {isID ? 'Pengaturan' : 'Settings'}
         </h1>
-        <p className="text-xs sm:text-[14px] text-slate-400 font-light">
+        <p className="text-[14px] text-slate-600 leading-relaxed">
           {isID ? 'Kelola profil, notifikasi, dan bahasa Anda.' : 'Manage your profile, notifications, and language.'}
         </p>
-      </motion.div>
+      </motion.header>
 
-      {/* Profile */}
-      <section className="p-4 sm:p-8 rounded-3xl bg-white border border-slate-100 shadow-[0_2px_12px_rgba(0,0,0,0.03)] space-y-5 sm:space-y-6">
-        <div className="flex items-center gap-3">
-          <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0">
-            <User className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />
-          </span>
-          <div>
-            <h2 className="text-sm sm:text-base font-semibold text-slate-900">
-              {isID ? 'Informasi Akun' : 'Account Information'}
-            </h2>
-            <p className="text-[11px] sm:text-[12px] text-slate-400 font-light">
-              {isID ? 'Detail profil Roomly Anda' : 'Your Roomly profile details'}
-            </p>
-          </div>
-        </div>
-
+      <section className="rounded-3xl border border-navy-soft bg-white overflow-hidden shadow-[0_8px_28px_rgba(30,58,138,0.06)]">
         {!user ? (
-          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 text-center">
-            <p className="text-xs sm:text-[13px] text-slate-400 font-light">
-              {isID ? 'Masuk untuk melihat data akun Anda.' : 'Sign in to see your account data.'}
-            </p>
+          <div className="p-8 sm:p-10 text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-navy mx-auto flex items-center justify-center">
+              <User className="w-6 h-6 text-gold-light" aria-hidden />
+            </div>
+            <div className="space-y-1.5">
+              <h2 className="font-serif text-xl text-navy">
+                {isID ? 'Masuk untuk melihat profil' : 'Sign in to view your profile'}
+              </h2>
+              <p className="text-[14px] text-slate-600 max-w-sm mx-auto">
+                {isID
+                  ? 'Akun Roomly menyimpan reservasi, wishlist, dan preferensi notifikasi Anda.'
+                  : 'Your Roomly account keeps bookings, wishlist, and notification preferences.'}
+              </p>
+            </div>
+            {onOpenAuth && (
+              <button
+                type="button"
+                onClick={onOpenAuth}
+                className="inline-flex items-center justify-center gap-2 min-h-12 px-6 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200 cursor-pointer"
+              >
+                <LogIn className="w-4 h-4" aria-hidden />
+                {isID ? 'Masuk' : 'Sign in'}
+              </button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50/50 border border-slate-100 space-y-1 min-w-0">
-              <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">
-                {isID ? 'Nama Lengkap' : 'Full Name'}
-              </span>
-              <span className="text-xs sm:text-[14px] font-semibold text-slate-900 block truncate">{user.fullName}</span>
+          <>
+            <div className="relative bg-navy text-white p-6 sm:p-8 overflow-hidden">
+              <div className="pointer-events-none absolute -bottom-16 -right-10 w-48 h-48 rounded-full bg-gold/20 blur-3xl" aria-hidden />
+              <div className="relative flex items-center gap-4 sm:gap-5">
+                <div className="w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] rounded-2xl bg-white/10 text-gold-light font-serif text-xl sm:text-2xl flex items-center justify-center shrink-0">
+                  {initials(user.fullName)}
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <h2 className="font-serif text-2xl sm:text-[1.75rem] leading-tight truncate">
+                    {user.fullName}
+                  </h2>
+                  <p className="text-[14px] text-white/70 truncate">{user.email}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-semibold text-gold-light">
+                      <BadgeCheck className="w-3 h-3" aria-hidden />
+                      {roleLabel}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-[11px] font-medium text-white/80">
+                      <Hash className="w-3 h-3" aria-hidden />
+                      #{user.userId}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50/50 border border-slate-100 space-y-1 min-w-0">
-              <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Email</span>
-              <span className="text-xs sm:text-[14px] font-semibold text-slate-900 block truncate">{user.email}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-navy-soft">
+              {profileFields.map(({ icon: Icon, label, value }) => (
+                <div key={label} className="p-4 sm:p-5 flex items-start gap-3 min-w-0">
+                  <span className="w-10 h-10 rounded-xl bg-navy-soft flex items-center justify-center shrink-0">
+                    <Icon className="w-4 h-4 text-navy" aria-hidden />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">{label}</p>
+                    <p className="text-[14px] font-semibold text-navy truncate mt-0.5">{value}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50/50 border border-slate-100 space-y-1 min-w-0">
-              <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <BadgeCheck className="w-3 h-3 text-slate-400 shrink-0" />{isID ? 'Peran' : 'Role'}
-              </span>
-              <span className="text-xs sm:text-[14px] font-semibold text-slate-900 block truncate">
-                {ROLE_LABELS[user.role] ? (isID ? ROLE_LABELS[user.role].id : ROLE_LABELS[user.role].en) : user.role}
-              </span>
-            </div>
-
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-slate-50/50 border border-slate-100 space-y-1 min-w-0">
-              <span className="text-[9px] sm:text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                <Hash className="w-3 h-3 text-slate-400 shrink-0" />{isID ? 'ID Anggota' : 'Member ID'}
-              </span>
-              <span className="text-xs sm:text-[14px] font-semibold text-slate-900 block truncate">#{user.userId}</span>
-            </div>
-          </div>
+          </>
         )}
       </section>
 
-      {/* Notifications */}
       {user && (
-        <section className="p-4 sm:p-8 rounded-3xl bg-white border border-slate-100 shadow-[0_2px_12px_rgba(0,0,0,0.03)] space-y-5 sm:space-y-6">
-          <div className="flex items-center justify-between">
+        <section className="p-5 sm:p-8 rounded-3xl bg-white border border-navy-soft shadow-[0_8px_28px_rgba(30,58,138,0.06)] space-y-5 sm:space-y-6">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
-              <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0">
-                <Bell className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />
+              <span className="w-11 h-11 rounded-2xl bg-navy-soft flex items-center justify-center shrink-0">
+                <Bell className="w-5 h-5 text-navy" aria-hidden />
               </span>
               <div>
-                <h2 className="text-sm sm:text-base font-semibold text-slate-900">
-                  {isID ? 'Preferensi Notifikasi' : 'Notification Preferences'}
+                <h2 className="text-base font-semibold text-navy">
+                  {isID ? 'Preferensi notifikasi' : 'Notification preferences'}
                 </h2>
-                <p className="text-[11px] sm:text-[12px] text-slate-400 font-light">
-                  {isID ? 'Pilih channel notifikasi yang Anda inginkan' : 'Choose which channels you want'}
+                <p className="text-[13px] text-slate-600">
+                  {isID ? 'Atur App dan email per kategori.' : 'Set App and email per category.'}
                 </p>
               </div>
             </div>
-            {loadingPrefs && <Loader2 className="w-4 h-4 text-slate-300 animate-spin shrink-0" />}
+            {loadingPrefs && <Loader2 className="w-4 h-4 text-navy animate-spin shrink-0 mt-1" aria-label={isID ? 'Memuat' : 'Loading'} />}
           </div>
 
           {prefsError && (
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-600 text-xs font-medium flex items-center gap-2.5">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div role="alert" className="p-3.5 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[13px] font-medium flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
               {prefsError}
             </div>
           )}
 
-          {!loadingPrefs && (
-            <div className="space-y-6 sm:space-y-8">
-              {/* Column headers */}
-              <div className="hidden sm:flex items-center justify-end gap-6 pr-4 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                <span className="w-16 flex items-center justify-center gap-1.5">
-                  <Bell className="w-3 h-3" />{isID ? 'App' : 'App'}
-                </span>
-                <span className="w-16 flex items-center justify-center gap-1.5">
-                  <Mail className="w-3 h-3" />Email
-                </span>
+          {loadingPrefs ? (
+            <div className="space-y-2" aria-hidden>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-11 rounded-xl bg-navy-soft/70 animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div
+                className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1"
+                role="tablist"
+                aria-label={isID ? 'Kategori notifikasi' : 'Notification category'}
+              >
+                {GUEST_EVENT_GROUPS.map((group) => {
+                  const active = activeGroupKey === group.title.en;
+                  return (
+                    <button
+                      key={group.title.en}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setActiveGroupKey(group.title.en)}
+                      className={`min-h-10 px-3.5 rounded-full text-[12px] font-semibold whitespace-nowrap transition-colors duration-200 cursor-pointer shrink-0 ${
+                        active
+                          ? 'bg-navy text-white'
+                          : 'bg-navy-soft text-slate-600 hover:text-navy'
+                      }`}
+                    >
+                      {isID ? group.title.id : group.title.en}
+                    </button>
+                  );
+                })}
               </div>
 
-              {GUEST_EVENT_GROUPS.map((group) => (
-                <div key={group.title.en} className="space-y-2.5 sm:space-y-3">
-                  <p className="text-[10px] sm:text-[11px] font-semibold text-slate-400 uppercase tracking-[0.12em]">
-                    {isID ? group.title.id : group.title.en}
-                  </p>
-                  <div className="rounded-2xl border border-slate-100 divide-y divide-slate-50 overflow-hidden">
-                    {group.events.map((eventType) => {
-                      const pref = getPref(eventType);
-                      const inAppKey = `${eventType}:inAppEnabled`;
-                      const emailKey = `${eventType}:emailEnabled`;
-                      return (
-                        <div
-                          key={eventType}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between px-3.5 py-3 sm:px-5 sm:py-4 gap-2 sm:gap-4 hover:bg-slate-50/50 transition-colors"
-                        >
-                          <span className="text-xs sm:text-[13px] font-medium text-slate-700">
-                            {isID ? EVENT_TYPE_LABELS[eventType].id : EVENT_TYPE_LABELS[eventType].en}
-                          </span>
-                          <div className="flex items-center gap-6 sm:gap-6 justify-end w-full sm:w-auto border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100/60">
-                            <Toggle
-                              checked={pref.inAppEnabled}
-                              loading={savingKey === inAppKey}
-                              onChange={() => handleToggle(eventType, 'inAppEnabled')}
-                              label={isID ? 'App' : 'App'}
-                            />
-                            <Toggle
-                              checked={pref.emailEnabled}
-                              loading={savingKey === emailKey}
-                              onChange={() => handleToggle(eventType, 'emailEnabled')}
-                              label="Email"
-                            />
+              <AnimatePresence mode="wait" initial={false}>
+                {GUEST_EVENT_GROUPS.filter((g) => g.title.en === activeGroupKey).map((group) => (
+                  <motion.div
+                    key={group.title.en}
+                    role="tabpanel"
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={fadeTween}
+                    className="rounded-2xl border border-navy-soft overflow-hidden"
+                  >
+                    <div className="flex items-center justify-end px-3.5 sm:px-4 py-1.5 bg-[#F8FAFC] border-b border-navy-soft text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                      <span className="w-12 text-center">{isID ? 'App' : 'App'}</span>
+                      <span className="w-12 text-center">Email</span>
+                    </div>
+                    <div className="divide-y divide-navy-soft">
+                      {group.events.map((eventType) => {
+                        const pref = getPref(eventType);
+                        const inAppKey = `${eventType}:inAppEnabled`;
+                        const emailKey = `${eventType}:emailEnabled`;
+                        const eventLabel = isID ? EVENT_TYPE_LABELS[eventType].id : EVENT_TYPE_LABELS[eventType].en;
+                        return (
+                          <div
+                            key={eventType}
+                            className="flex items-center justify-between gap-3 px-3.5 py-1 sm:px-4"
+                          >
+                            <span className="text-[13px] font-medium text-navy leading-snug min-w-0 truncate">
+                              {eventLabel}
+                            </span>
+                            <div className="flex items-center shrink-0">
+                              <Toggle
+                                checked={pref.inAppEnabled}
+                                loading={savingKey === inAppKey}
+                                onChange={() => handleToggle(eventType, 'inAppEnabled')}
+                                ariaLabel={`${eventLabel} · ${isID ? 'Aplikasi' : 'App'}`}
+                              />
+                              <Toggle
+                                checked={pref.emailEnabled}
+                                loading={savingKey === emailKey}
+                                onChange={() => handleToggle(eventType, 'emailEnabled')}
+                                ariaLabel={`${eventLabel} · Email`}
+                              />
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
           )}
         </section>
       )}
 
-      {/* Language */}
-      <section className="p-4 sm:p-8 rounded-3xl bg-white border border-slate-100 shadow-[0_2px_12px_rgba(0,0,0,0.03)] space-y-5 sm:space-y-6">
+      <section className="p-5 sm:p-8 rounded-3xl bg-white border border-navy-soft shadow-[0_8px_28px_rgba(30,58,138,0.06)] space-y-5">
         <div className="flex items-center gap-3">
-          <span className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0">
-            <Languages className="w-4 h-4 sm:w-5 sm:h-5 text-slate-500" />
+          <span className="w-11 h-11 rounded-2xl bg-navy-soft flex items-center justify-center shrink-0">
+            <Languages className="w-5 h-5 text-navy" aria-hidden />
           </span>
           <div>
-            <h2 className="text-sm sm:text-base font-semibold text-slate-900">
+            <h2 className="text-base font-semibold text-navy">
               {isID ? 'Bahasa' : 'Language'}
             </h2>
-            <p className="text-[11px] sm:text-[12px] text-slate-400 font-light">
-              {isID ? 'Pilih bahasa antarmuka' : 'Choose your interface language'}
+            <p className="text-[13px] text-slate-600">
+              {isID ? 'Pilih bahasa antarmuka.' : 'Choose your interface language.'}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-1.5 bg-slate-50 rounded-2xl border border-slate-100 w-full sm:w-fit">
-          <button
-            onClick={() => onLanguageChange('ID')}
-            className={`w-full sm:w-auto text-center px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 cursor-pointer ${
-              language === 'ID'
-                ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
+        <LayoutGroup id="settings-lang">
+          <div
+            className="flex items-center p-1 bg-navy-soft rounded-full w-full sm:w-fit"
+            role="radiogroup"
+            aria-label={isID ? 'Bahasa' : 'Language'}
           >
-            Bahasa Indonesia
-          </button>
-          <button
-            onClick={() => onLanguageChange('EN')}
-            className={`w-full sm:w-auto text-center px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl text-xs sm:text-[13px] font-semibold transition-all duration-200 cursor-pointer ${
-              language === 'EN'
-                ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-                : 'text-slate-400 hover:text-slate-600'
-            }`}
-          >
-            English
-          </button>
-        </div>
+            {([
+              { id: 'ID' as const, label: 'Bahasa Indonesia' },
+              { id: 'EN' as const, label: 'English' },
+            ]).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                role="radio"
+                aria-checked={language === opt.id}
+                onClick={() => onLanguageChange(opt.id)}
+                className={`relative z-10 flex-1 sm:flex-none min-h-11 px-5 rounded-full text-[13px] font-semibold transition-colors duration-200 cursor-pointer ${
+                  language === opt.id ? 'text-white' : 'text-slate-600 hover:text-navy'
+                }`}
+              >
+                {language === opt.id && (
+                  reduceMotion ? (
+                    <span className="absolute inset-0 z-0 bg-navy rounded-full" />
+                  ) : (
+                    <motion.span
+                      layoutId="settings-lang-pill"
+                      className="absolute inset-0 z-0 bg-navy rounded-full"
+                      transition={pillTween}
+                    />
+                  )
+                )}
+                <span className="relative z-10">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+        </LayoutGroup>
       </section>
+
+      {user && (
+        <section className="p-5 sm:p-6 rounded-3xl bg-white border border-navy-soft shadow-[0_8px_28px_rgba(30,58,138,0.06)]">
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full min-h-12 inline-flex items-center justify-center gap-2 rounded-xl border border-rose-100 bg-rose-50/60 hover:bg-rose-50 text-rose-700 text-[14px] font-semibold transition-colors duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loggingOut ? (
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+            ) : (
+              <LogOut className="w-4 h-4" aria-hidden />
+            )}
+            {isID ? 'Keluar dari akun' : 'Sign out'}
+          </button>
+        </section>
+      )}
     </div>
   );
 };
 
-// ─── Custom Toggle Switch ───
 function Toggle({
   checked,
   loading,
   onChange,
-  label
+  ariaLabel,
 }: {
   checked: boolean;
   loading: boolean;
   onChange: () => void;
-  label: string;
+  ariaLabel: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-1 sm:w-16">
-      <span className="sm:hidden text-[10px] font-medium text-slate-400">{label}</span>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      aria-busy={loading}
+      disabled={loading}
+      onClick={onChange}
+      className="relative w-12 min-h-10 inline-flex items-center justify-center cursor-pointer disabled:cursor-wait"
+    >
       {loading ? (
-        <Loader2 className="w-5 h-5 text-slate-300 animate-spin" />
+        <Loader2 className="w-4 h-4 text-navy animate-spin" aria-hidden />
       ) : (
-        <button
-          onClick={onChange}
-          className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
-            checked ? 'bg-slate-900' : 'bg-slate-200'
-          }`}
-          aria-checked={checked}
-          role="switch"
-        >
+        <span className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${checked ? 'bg-navy' : 'bg-slate-200'}`}>
           <span
-            className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+            className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
               checked ? 'translate-x-5' : 'translate-x-0'
             }`}
           />
-        </button>
+        </span>
       )}
-    </div>
+    </button>
   );
 }

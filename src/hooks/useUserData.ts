@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { bookingApi } from '../api/bookings';
 import { notificationApi } from '../api/notifications';
 import { wishlistApi } from '../api/wishlist';
@@ -14,6 +14,47 @@ export function useUserData(
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [wishlistIds, setWishlistIds] = useState<string[]>([]);
 
+  const refreshBookings = useCallback(async () => {
+    if (!user) {
+      setBookings([]);
+      return;
+    }
+
+    try {
+      const list = await bookingApi.myBookings();
+      const lookup = new Map<string, Hotel>(hotelsRef.current?.map((hotel): [string, Hotel] => [hotel.id, hotel]) ?? []);
+      setBookings(
+        list.map((booking) => {
+          const hotel = lookup.get(String(booking.hotelId));
+          return mapBookingToUI(booking, {
+            hotelImage: hotel?.image,
+            hotelLocation: hotel?.location,
+            hotelAddress: hotel?.address,
+          });
+        })
+      );
+    } catch (err) {
+      // Keep the last known booking state on a transient service failure.
+      console.error('Failed to load bookings', err);
+    }
+  }, [hotelsRef, user]);
+
+  const refreshNotifications = useCallback(async () => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      const page = await notificationApi.list(0, 50);
+      setNotifications(page?.content ? page.content.map(mapNotificationToUI) : []);
+    } catch (err) {
+      // Keep the last successfully loaded list instead of pretending there are
+      // no notifications while the service is temporarily unavailable.
+      console.warn('Notifications endpoint unavailable', err);
+    }
+  }, [user]);
+
   // Load bookings + notifications + wishlist whenever auth state changes.
   useEffect(() => {
     if (!user) {
@@ -27,31 +68,25 @@ export function useUserData(
       .then((items) => setWishlistIds(items.map((item) => String(item.hotelId))))
       .catch((err) => console.error('Failed to load wishlist', err));
 
-    bookingApi
-      .myBookings()
-      .then((list) => {
-        const lookup = new Map<string, Hotel>(hotelsRef.current?.map((h): [string, Hotel] => [h.id, h]) ?? []);
-        setBookings(
-          list.map((b) => {
-            const h = lookup.get(String(b.hotelId));
-            return mapBookingToUI(b, {
-              hotelImage: h?.image,
-              hotelLocation: h?.location,
-              hotelAddress: h?.address,
-            });
-          })
-        );
-      })
-      .catch((err) => console.error('Failed to load bookings', err));
-
-    notificationApi
-      .list(0, 30)
-      .then((page) => setNotifications(page?.content ? page.content.map(mapNotificationToUI) : []))
-      .catch((err) => {
-        console.warn('Notifications endpoint unavailable', err);
-        setNotifications([]);
-      });
   }, [user]);
+
+  // Booking/payment state is updated asynchronously between services. Refresh
+  // it on sign-in and periodically so My Bookings never requires a hard reload.
+  useEffect(() => {
+    if (!user) return;
+    refreshBookings();
+    const intervalId = window.setInterval(refreshBookings, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [user, refreshBookings]);
+
+  // The backend exposes REST polling (no WebSocket/SSE). Refresh periodically
+  // so async booking/payment/invoice notifications appear without re-login.
+  useEffect(() => {
+    if (!user) return;
+    refreshNotifications();
+    const intervalId = window.setInterval(refreshNotifications, 30_000);
+    return () => window.clearInterval(intervalId);
+  }, [user, refreshNotifications]);
 
   // Toggle Wishlist — requires auth (Roomly's /api/wishlists/** is authenticated-only).
   const handleToggleWishlist = (hotelId: string) => {
@@ -90,22 +125,19 @@ export function useUserData(
       })
     );
     if (!wasUnread) return;
-    notificationApi.markRead(Number(notificationId)).catch((err) => {
+    const numericId = Number(notificationId);
+    if (!Number.isInteger(numericId) || numericId <= 0) return;
+    notificationApi.markRead(numericId).catch((err) => {
       console.error('Failed to mark notification read', err);
       setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, unread: true } : n)));
     });
   };
 
   // Cancel Booking
-  const handleCancelBooking = async (bookingId: string) => {
-    const previous = bookings;
-    setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: 'cancelled' } : b)));
-    try {
-      await bookingApi.cancel(Number(bookingId));
-    } catch (err) {
-      console.error('Failed to cancel booking', err);
-      setBookings(previous);
-    }
+  const handleCancelBooking = async (bookingId: string, reason?: string) => {
+    const cancellation = await bookingApi.cancel(Number(bookingId), reason);
+    await refreshBookings();
+    return cancellation;
   };
 
   const activeBookingsCount = bookings.filter((b) => b.status === 'confirmed' || b.status === 'checked-in').length;
@@ -113,8 +145,9 @@ export function useUserData(
   return {
     bookings,
     setBookings,
+    refreshBookings,
     notifications,
-    setNotifications,
+    refreshNotifications,
     wishlistIds,
     handleToggleWishlist,
     handleMarkNotificationsRead,

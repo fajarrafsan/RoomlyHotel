@@ -24,21 +24,30 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
   hotel, isLoadingDetail, onClose, onSelectRoom,
   isWishlisted, onToggleWishlist, language
 }) => {
-  if (!hotel) return null;
   const isID = language === 'ID';
   const [activeTab, setActiveTab] = useState<'rooms' | 'overview' | 'reviews'>('rooms');
 
-  // Lock scroll
   useEffect(() => {
+    if (!hotel) return;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = ''; };
-  }, []);
+  }, [hotel]);
 
-  // enrichHotelDetail already puts the hotel thumbnail first in the gallery.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('[data-hotel-fullscreen-gallery]')) return;
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!hotel) return null;
+
   const images = hotel.gallery?.length ? hotel.gallery : [hotel.image];
   const isBestSeller = hotel.rating >= 4.8 && hotel.reviewsCount > 50;
 
-  // Real cancellation terms live on the room policies (policyType REFUND).
   const refundPolicies: RoomPolicy[] = hotel.rooms
     .flatMap((r) => r.policies ?? [])
     .flatMap((g) => g.items)
@@ -57,115 +66,128 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
     ? `https://www.google.com/maps/search/?api=1&query=${hotel.coordinates.lat},${hotel.coordinates.lng}`
     : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${hotel.name} ${fullAddress}`)}`;
 
-  // Group the hotel's facilities by their backend category.
   const facilitiesByCategory = (hotel.facilities ?? []).reduce((acc, f) => {
     (acc[f.category] ||= []).push(f);
     return acc;
   }, {} as Record<string, NonNullable<Hotel['facilities']>>);
 
+  const tabs = [
+    { key: 'rooms' as const, label: isID ? 'Kamar' : 'Rooms', count: hotel.rooms.length },
+    { key: 'overview' as const, label: isID ? 'Tentang' : 'About' },
+    { key: 'reviews' as const, label: isID ? 'Ulasan' : 'Reviews', count: hotel.reviews.length },
+  ];
+
   return (
-    <>
-      {/* ===== MAIN MODAL ===== */}
+    <motion.div
+      role="presentation"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.25 }}
+      className="fixed inset-0 z-50 bg-slate-950/50 flex items-start justify-center overflow-y-auto"
+      onClick={onClose}
+    >
       <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3 }}
-        className="fixed inset-0 z-50 bg-slate-950/30 backdrop-blur-sm flex items-start justify-center overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="hotel-detail-title"
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 16 }}
+        transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
+        className="hotel-detail-modal bg-white rounded-none sm:rounded-3xl max-w-5xl w-full shadow-[0_24px_64px_rgba(30,58,138,0.18)] border-0 sm:border border-navy-soft overflow-hidden my-0 sm:my-8 relative max-h-[100vh] sm:max-h-[92vh] flex flex-col transform-gpu"
+        onClick={(e) => e.stopPropagation()}
       >
-        <motion.div
-          initial={{ opacity: 0, y: 30, scale: 0.97 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 20, scale: 0.97 }}
-          transition={{ type: 'spring', damping: 30, stiffness: 280 }}
-          className="bg-white rounded-none sm:rounded-2xl max-w-5xl w-full shadow-[0_25px_80px_rgba(0,0,0,0.15)] border-0 sm:border border-slate-100 overflow-hidden my-0 sm:my-8 relative max-h-[100vh] sm:max-h-[92vh] flex flex-col"
-        >
-          {isLoadingDetail ? (
-            <HotelDetailModalSkeleton onClose={onClose} isID={isID} />
-          ) : (
-            <>
-          <HotelGallery
-            hotel={hotel}
-            images={images}
-            isBestSeller={isBestSeller}
-            isID={isID}
-            isWishlisted={isWishlisted}
-            onToggleWishlist={onToggleWishlist}
-            onClose={onClose}
-          />
+        {isLoadingDetail ? (
+          <HotelDetailModalSkeleton onClose={onClose} isID={isID} />
+        ) : (
+          <>
+            <HotelGallery
+              hotel={hotel}
+              images={images}
+              isBestSeller={isBestSeller}
+              isID={isID}
+              isWishlisted={isWishlisted}
+              onToggleWishlist={onToggleWishlist}
+              onClose={onClose}
+            />
 
-          {/* ===== QUICK STATS BAR ===== */}
-          <QuickStatsBar
-            hotel={hotel}
-            anyRefundable={anyRefundable}
-            checkIn={checkIn}
-            checkOut={checkOut}
-            isID={isID}
-          />
+            <QuickStatsBar
+              hotel={hotel}
+              anyRefundable={anyRefundable}
+              checkIn={checkIn}
+              checkOut={checkOut}
+              isID={isID}
+            />
 
-          {/* ===== TABS ===== */}
-          <div className="flex items-center px-6 border-b border-slate-100 bg-white shrink-0 sticky top-0 z-10">
-            {[
-              { key: 'rooms', label: isID ? 'Kamar' : 'Rooms', count: hotel.rooms.length },
-              { key: 'overview', label: isID ? 'Tentang' : 'About' },
-              { key: 'reviews', label: isID ? 'Ulasan' : 'Reviews', count: hotel.reviews.length },
-            ].map((tab) => (
-              <button key={tab.key} onClick={() => setActiveTab(tab.key as any)}
-                className={`py-4 px-1 mr-8 text-[13px] font-medium border-b-2 transition-all duration-200 ${
-                  activeTab === tab.key ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
-                }`}>
-                {tab.label}
-                {tab.count !== undefined && <span className="ml-1.5 text-[11px] text-slate-400 font-light">{tab.count}</span>}
-              </button>
-            ))}
-          </div>
-
-          {/* ===== CONTENT ===== */}
-          <div className="p-6 sm:p-8 overflow-y-auto flex-1 space-y-8 bg-white">
-            {activeTab === 'rooms' && (
-              <RoomsTab
-                hotel={hotel}
-                isLoadingDetail={!!isLoadingDetail}
-                isID={isID}
-                onSelectRoom={onSelectRoom}
-              />
-            )}
-            {activeTab === 'overview' && (
-              <OverviewTab
-                hotel={hotel}
-                isID={isID}
-                checkIn={checkIn}
-                checkOut={checkOut}
-                anyRefundable={anyRefundable}
-                refundPolicies={refundPolicies}
-                facilitiesByCategory={facilitiesByCategory}
-                mapsUrl={mapsUrl}
-                hasCoords={hasCoords}
-              />
-            )}
-            {activeTab === 'reviews' && (
-              <ReviewsTab hotel={hotel} isID={isID} />
-            )}
-          </div>
-
-          {/* ===== STICKY MOBILE BOTTOM BAR ===== */}
-          <div className="sm:hidden sticky bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-100 p-4 flex items-center justify-between z-20">
-            <div>
-              {hotel.originalPrice && (
-                <span className="text-[11px] text-slate-400 line-through font-light block">{formatCurrency(hotel.originalPrice)}</span>
-              )}
-              <span className="text-xl font-bold text-slate-900">{formatCurrency(hotel.pricePerNight)}</span>
-              <span className="text-[11px] text-slate-400 font-light"> / {isID ? 'malam' : 'night'}</span>
+            <div className="flex items-center px-5 sm:px-6 border-b border-navy-soft bg-white shrink-0" role="tablist" aria-label={isID ? 'Detail hotel' : 'Hotel detail'}>
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`min-h-12 py-3 px-1 mr-6 text-[14px] font-semibold border-b-2 transition-colors duration-200 cursor-pointer ${
+                    activeTab === tab.key ? 'border-navy text-navy' : 'border-transparent text-slate-500 hover:text-navy'
+                  }`}
+                >
+                  {tab.label}
+                  {tab.count !== undefined && (
+                    <span className={`ml-1.5 text-[12px] font-medium ${activeTab === tab.key ? 'text-gold' : 'text-slate-400'}`}>
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
-            <button onClick={() => setActiveTab('rooms')}
-              className="px-6 py-3 rounded-xl bg-slate-900 text-white text-[13px] font-medium shadow-sm">
-              {isID ? 'Lihat Kamar' : 'See Rooms'}
-            </button>
-          </div>
-            </>
-          )}
-        </motion.div>
+
+            <div className="p-5 sm:p-8 overflow-y-auto flex-1 space-y-8 bg-white">
+              {activeTab === 'rooms' && (
+                <RoomsTab
+                  hotel={hotel}
+                  isLoadingDetail={!!isLoadingDetail}
+                  isID={isID}
+                  onSelectRoom={onSelectRoom}
+                />
+              )}
+              {activeTab === 'overview' && (
+                <OverviewTab
+                  hotel={hotel}
+                  isID={isID}
+                  checkIn={checkIn}
+                  checkOut={checkOut}
+                  anyRefundable={anyRefundable}
+                  refundPolicies={refundPolicies}
+                  facilitiesByCategory={facilitiesByCategory}
+                  mapsUrl={mapsUrl}
+                  hasCoords={hasCoords}
+                />
+              )}
+              {activeTab === 'reviews' && (
+                <ReviewsTab hotel={hotel} isID={isID} />
+              )}
+            </div>
+
+            <div className="sm:hidden sticky bottom-0 left-0 right-0 bg-white border-t border-navy-soft p-4 flex items-center justify-between z-20">
+              <div>
+                {hotel.originalPrice && (
+                  <span className="text-[12px] text-slate-500 line-through block">{formatCurrency(hotel.originalPrice)}</span>
+                )}
+                <span className="text-xl font-semibold text-navy">{formatCurrency(hotel.pricePerNight)}</span>
+                <span className="text-[12px] text-slate-500"> / {isID ? 'malam' : 'night'}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTab('rooms')}
+                className="min-h-12 px-6 py-3 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200 cursor-pointer"
+              >
+                {isID ? 'Lihat kamar' : 'See rooms'}
+              </button>
+            </div>
+          </>
+        )}
       </motion.div>
-    </>
+    </motion.div>
   );
 };

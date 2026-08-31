@@ -44,7 +44,7 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
     hasActiveFilters
   } = useHotelFilters(hotels, searchQuery, selectedCity, onSearchQueryChange, onSelectCity);
 
-  const categories = ['ALL', 'Resort', 'Luxury', 'Boutique', 'Villa', 'Business'];
+  const categories = ['ALL', 'Hotel', 'Villa', 'Apartment'];
 
   const cities = useMemo(
     () => Array.from(new Set(hotels.map((h) => h.city).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -52,7 +52,7 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
   );
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="explore-page min-h-screen bg-[#F8FAFC]">
       {/* ===== HERO SECTION: Premium White Elegance ===== */}
       <ExploreHero
         isID={isID}

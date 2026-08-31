@@ -8,13 +8,9 @@ export const reviewApi = {
   // review-service returns raw Spring Data Page<T> (like invoice-service/
   // notification-service), not Roomly's custom PagedResponse<T> wrapper.
   myReviews: (page = 0, size = 20) =>
-    http
-      .get<SpringPage<ReviewResponse>>(`${BASE}/api/reviews/me${buildQuery({ page, size })}`)
-      .catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size })),
+    http.get<SpringPage<ReviewResponse>>(`${BASE}/api/reviews/me${buildQuery({ page, size })}`),
   byHotel: (hotelId: number, page = 0, size = 20) =>
-    http
-      .get<SpringPage<ReviewResponse>>(`${BASE}/api/hotels/${hotelId}/reviews${buildQuery({ page, size })}`)
-      .catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size })),
+    http.get<SpringPage<ReviewResponse>>(`${BASE}/api/hotels/${hotelId}/reviews${buildQuery({ page, size })}`),
   hotelRatingSummary: (hotelId: number) =>
-    http.get<RatingSummaryResponse>(`${BASE}/api/hotels/${hotelId}/rating-summary`).catch(() => null),
+    http.get<RatingSummaryResponse>(`${BASE}/api/hotels/${hotelId}/rating-summary`),
 };

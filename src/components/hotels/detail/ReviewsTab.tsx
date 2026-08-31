@@ -89,16 +89,16 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
       {/* Rating Summary */}
-      <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100">
+      <div className="p-6 rounded-2xl bg-navy-soft/60 border border-navy-soft">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-slate-900 text-white flex flex-col items-center justify-center">
+            <div className="w-16 h-16 rounded-2xl bg-navy text-white flex flex-col items-center justify-center">
               <span className="text-2xl font-bold">{hotel.rating.toFixed(1)}</span>
               <span className="text-[10px] font-light opacity-70">/ 5</span>
             </div>
             <div>
               <StarRating rating={hotel.rating} size="md" />
-              <p className="text-[13px] font-semibold text-slate-900 mt-1">
+              <p className="text-[13px] font-semibold text-navy mt-1">
                 {hotel.rating >= 4.8 ? (isID ? 'Sangat Luar Biasa' : 'Exceptional') : (isID ? 'Sangat Bagus' : 'Very Good')}
               </p>
               <p className="text-[11px] text-slate-400 font-light">{hotel.reviewsCount} {isID ? 'ulasan terverifikasi' : 'verified reviews'}</p>
@@ -135,7 +135,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: idx * 0.05 }}
-              className="p-5 rounded-2xl border border-slate-100 space-y-3"
+              className="p-5 rounded-2xl border border-navy-soft space-y-3"
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -154,7 +154,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
                   </div>
                 </div>
                 <div className="flex items-center gap-1 bg-slate-100 px-2.5 py-1 rounded-lg">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                  <Star className="w-3.5 h-3.5 fill-gold text-gold" />
                   <span className="text-[13px] font-semibold text-slate-700">{rev.rating}</span>
                 </div>
               </div>
@@ -178,7 +178,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
 
       {/* Write Review */}
       <div className="pt-6 border-t border-slate-100 space-y-4">
-        <h4 className="font-semibold text-[15px] text-slate-900">{isID ? 'Tulis Ulasan' : 'Write a Review'}</h4>
+        <h4 className="font-semibold text-[15px] text-navy font-serif">{isID ? 'Tulis ulasan' : 'Write a review'}</h4>
         {!user ? (
           <div className="p-6 rounded-2xl bg-slate-50 text-center">
             <p className="text-[13px] text-slate-500 font-light">{isID ? 'Masuk untuk menulis ulasan.' : 'Sign in to write a review.'}</p>
@@ -201,7 +201,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
             <div>
               <label className="text-[12px] font-medium text-slate-500 block mb-2">{isID ? 'Reservasi' : 'Booking'}</label>
               <select required value={reviewBookingId} onChange={(e) => setReviewBookingId(e.target.value)}
-                className="w-full p-3.5 rounded-xl border border-slate-200 bg-white text-[13px] text-slate-900 focus:outline-none focus:border-slate-900 transition-colors">
+                className="w-full min-h-12 p-3.5 rounded-xl border border-navy-soft bg-white text-[13px] text-navy focus:outline-none focus:border-navy focus:ring-2 focus:ring-navy/15 transition-colors">
                 {eligibleBookings?.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.bookingCode} — {b.roomName || `Room #${b.roomId}`} ({formatDate(b.checkOutDate, isID ? 'ID' : 'EN')})
@@ -222,7 +222,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
                   {[1,2,3,4,5].map((n) => (
                     <button key={n} type="button" onClick={() => setReviewRating(n)}
                       className="p-1 transition-transform hover:scale-110">
-                      <Star className={`w-6 h-6 ${n <= reviewRating ? 'fill-amber-400 text-amber-400' : 'fill-slate-200 text-slate-200'}`} />
+                      <Star className={`w-6 h-6 ${n <= reviewRating ? 'fill-gold text-gold' : 'fill-slate-200 text-slate-200'}`} />
                     </button>
                   ))}
                 </div>
@@ -238,7 +238,7 @@ export const ReviewsTab: React.FC<{ hotel: Hotel; isID: boolean }> = ({ hotel, i
               <p className="text-[12px] text-emerald-600 font-medium flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />{isID ? 'Ulasan terkirim!' : 'Review submitted!'}</p>
             )}
             <button type="submit" disabled={isSubmittingReview || !reviewBookingId}
-              className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-medium transition-colors flex items-center gap-2 disabled:opacity-50">
+              className="min-h-12 px-6 py-3 rounded-xl bg-gold hover:bg-gold-dark text-white text-[13px] font-semibold transition-colors duration-200 flex items-center gap-2 disabled:opacity-50 cursor-pointer">
               {isSubmittingReview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               {isID ? 'Kirim Ulasan' : 'Submit Review'}
             </button>

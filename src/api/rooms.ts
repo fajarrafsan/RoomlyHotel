@@ -27,17 +27,15 @@ export interface RoomSearchParams {
 
 export const roomApi = {
   search: (params: RoomSearchParams) =>
-    http
-      .get<PagedResponse<RoomResponse>>(`${BASE}${buildQuery({ size: 50, ...params })}`)
-      .catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size: 50 })),
+    http.get<PagedResponse<RoomResponse>>(`${BASE}${buildQuery({ size: 50, ...params })}`),
   getById: (roomId: number) => http.get<RoomResponse>(`${BASE}/${roomId}`),
-  images: (roomId: number) => http.get<RoomImageResponse[]>(`${BASE}/${roomId}/images`).catch(() => []),
-  policiesGrouped: (roomId: number) => http.get<RoomPolicyGroupResponse[]>(`${BASE}/${roomId}/policies/grouped`).catch(() => []),
+  images: (roomId: number) => http.get<RoomImageResponse[]>(`${BASE}/${roomId}/images`),
+  policiesGrouped: (roomId: number) => http.get<RoomPolicyGroupResponse[]>(`${BASE}/${roomId}/policies/grouped`),
   availability: (roomId: number, from: string, to: string) =>
-    http.get<RoomAvailabilityResponse[]>(`${BASE}/${roomId}/availability${buildQuery({ from, to })}`).catch(() => []),
-  composition: (roomId: number) => http.get<RoomCompositionResponse[]>(`${BASE}/${roomId}/composition`).catch(() => []),
-  amenitiesGrouped: (roomId: number) => http.get<RoomAmenityGroupResponse[]>(`${BASE}/${roomId}/amenities/grouped`).catch(() => []),
-  prices: (roomId: number) => http.get<RoomPriceResponse[]>(`${BASE}/${roomId}/prices`).catch(() => []),
+    http.get<RoomAvailabilityResponse[]>(`${BASE}/${roomId}/availability${buildQuery({ from, to })}`),
+  composition: (roomId: number) => http.get<RoomCompositionResponse[]>(`${BASE}/${roomId}/composition`),
+  amenitiesGrouped: (roomId: number) => http.get<RoomAmenityGroupResponse[]>(`${BASE}/${roomId}/amenities/grouped`),
+  prices: (roomId: number) => http.get<RoomPriceResponse[]>(`${BASE}/${roomId}/prices`),
   // Admin-only: physical room units, used to assign a specific unit at check-in.
-  unitsByRoom: (roomId: number) => http.get<RoomUnitResponse[]>(`${ADMIN_BASE}/${roomId}/units`).catch(() => []),
+  unitsByRoom: (roomId: number) => http.get<RoomUnitResponse[]>(`${ADMIN_BASE}/${roomId}/units`),
 };

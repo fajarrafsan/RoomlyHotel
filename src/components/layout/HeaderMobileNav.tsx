@@ -30,14 +30,14 @@ export const HeaderMobileNav: React.FC<HeaderMobileNavProps> = ({
         animate={{ height: 'auto', opacity: 1 }}
         exit={{ height: 0, opacity: 0 }}
         transition={{ duration: 0.25, ease: 'easeInOut' }}
-        className="lg:hidden border-t border-slate-100 bg-white overflow-hidden"
+        className="lg:hidden border-t border-navy-soft bg-white overflow-hidden"
       >
         <div className="p-4 space-y-3">
           {/* Logged In Mobile Profile Card */}
           {user && (
             <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100/80 flex items-center justify-between gap-3 mb-2">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-bold flex items-center justify-center text-xs shrink-0 shadow-xs">
+                <div className="w-10 h-10 rounded-xl bg-navy text-white font-bold flex items-center justify-center text-xs shrink-0">
                   {user.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                 </div>
                 <div className="min-w-0">
@@ -68,14 +68,14 @@ export const HeaderMobileNav: React.FC<HeaderMobileNavProps> = ({
                   onClick={onClose}
                   className={({ isActive }) =>
                     `w-full flex items-center justify-between px-4 py-3 rounded-xl text-[13px] font-medium transition-all cursor-pointer ${
-                      isActive ? 'bg-slate-100 text-slate-900 font-semibold' : 'text-slate-600 hover:bg-slate-50'
+                      isActive ? 'bg-navy-soft text-navy font-semibold' : 'text-slate-600 hover:bg-navy-soft/60'
                     }`
                   }
                 >
                   {({ isActive }) => (
                     <>
                       <div className="flex items-center gap-3">
-                        <Icon className={`w-4 h-4 ${isActive ? 'text-slate-900' : 'text-slate-400'}`} />
+                        <Icon className={`w-4 h-4 ${isActive ? 'text-navy' : 'text-slate-400'}`} />
                         <span>{item.label}</span>
                       </div>
                       <div className="flex items-center gap-2">

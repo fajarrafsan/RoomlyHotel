@@ -11,6 +11,7 @@ import { HeaderNotifications } from './HeaderNotifications';
 import { HeaderUserMenu } from './HeaderUserMenu';
 import { HeaderMobileNav } from './HeaderMobileNav';
 import { HeaderSearchDropdown } from './HeaderSearchDropdown';
+import { isOperationsRole } from '../../lib/routes';
 
 interface HeaderProps {
   activeBookingsCount: number;
@@ -48,9 +49,7 @@ export const Header: React.FC<HeaderProps> = ({
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // An ADMIN session runs the operations console, not the storefront: the nav,
-  // the utility bar and the guest-facing hotel search all switch off here.
-  const isAdmin = user?.role === 'ADMIN';
+  const isOperations = isOperationsRole(user?.role);
 
   const handleSearchSubmit = (query: string) => {
     onSearchQueryChange(query);
@@ -60,43 +59,33 @@ export const Header: React.FC<HeaderProps> = ({
   const navItems = getNavItems({ isID, activeBookingsCount, wishlistCount, role: user?.role });
 
   return (
-    // No backdrop-blur here on purpose: this header is `sticky`, so a blurred
-    // backdrop has to be recomposited on every single scroll frame (it's
-    // reading the pixels scrolling underneath it, continuously). That was the
-    // single biggest source of the scroll stutter — solid near-opaque white
-    // reads the same visually and costs the compositor nothing.
-    <header className="sticky top-0 z-50 bg-white border-b border-slate-100 transition-colors duration-300 w-full text-slate-800">
+    <header className="site-header sticky top-0 z-50 bg-white border-b border-navy-soft w-full text-slate-800">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:px-4 focus:py-2 focus:rounded-xl focus:bg-navy focus:text-white focus:text-sm"
+      >
+        {isID ? 'Loncat ke konten' : 'Skip to content'}
+      </a>
 
-      {/* Top Utility Bar — Minimal & Clean */}
       <HeaderTopBar
         isID={isID}
-        isAdmin={isAdmin}
+        isOperations={isOperations}
         language={language}
         onLanguageChange={onLanguageChange}
         isDarkMode={isDarkMode}
         onToggleDarkMode={onToggleDarkMode}
       />
 
-      {/* Main Navbar Row */}
       <div className="max-w-[1800px] mx-auto px-3 sm:px-8 lg:px-12 2xl:px-16">
         <div className="h-14 sm:h-16 flex items-center justify-between gap-1.5 sm:gap-6">
-
           <div className="flex items-center gap-4 sm:gap-10 min-w-0">
-            {/* Logo — Premium & Refined */}
             <HeaderLogo isID={isID} />
-
-            {/* Desktop Navigation — Clean Pill Style */}
             <HeaderNav items={navItems} />
           </div>
 
-          {/* Right Controls */}
-          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2.5 shrink-0">
+            {!isOperations && <HeaderSearchDropdown isID={isID} onSubmit={handleSearchSubmit} />}
 
-            {/* Guest hotel search — a storefront control, so admins don't get it.
-                Each admin screen carries its own filters against /api/admin/**. */}
-            {!isAdmin && <HeaderSearchDropdown isID={isID} onSubmit={handleSearchSubmit} />}
-
-            {/* Notifications */}
             <HeaderNotifications
               isID={isID}
               notifications={notifications}
@@ -105,7 +94,6 @@ export const Header: React.FC<HeaderProps> = ({
               onOpenInvoiceByCode={onOpenInvoiceByCode}
             />
 
-            {/* User Section */}
             <HeaderUserMenu
               isID={isID}
               user={user}
@@ -113,11 +101,12 @@ export const Header: React.FC<HeaderProps> = ({
               onOpenAuth={onOpenAuth}
             />
 
-            {/* Mobile Menu Toggle */}
             <button
+              type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer shrink-0"
-              aria-label="Toggle Menu"
+              className="lg:hidden min-w-11 min-h-11 inline-flex items-center justify-center rounded-xl text-navy hover:bg-navy-soft transition-colors duration-200 cursor-pointer shrink-0"
+              aria-expanded={mobileMenuOpen}
+              aria-label={isID ? 'Buka menu' : 'Toggle menu'}
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -125,7 +114,6 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Mobile Navigation Drawer */}
       <HeaderMobileNav
         open={mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}

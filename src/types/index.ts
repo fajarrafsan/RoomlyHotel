@@ -93,7 +93,7 @@ export interface Hotel {
   pricePerNight: number;
   originalPrice?: number;
   stars: number; // 3, 4, or 5
-  category: 'Resort' | 'Boutique' | 'Business' | 'Villa' | 'Luxury';
+  category: 'Hotel' | 'Villa' | 'Apartment' | 'Resort' | 'Boutique' | 'Business' | 'Luxury';
   image: string;
   gallery: string[];
   /** Flat facility names — kept for compact card views. */
@@ -125,6 +125,7 @@ export interface Booking {
   id: string;
   bookingCode: string;
   hotelId: string;
+  roomId?: string;
   hotelName: string;
   hotelImage: string;
   hotelLocation: string;
@@ -138,7 +139,7 @@ export interface Booking {
   bedType: string;
   totalPrice: number;
   status: 'pending' | 'confirmed' | 'checked-in' | 'completed' | 'cancelled';
-  paymentStatus: 'paid' | 'pending' | 'refunded';
+  paymentStatus: 'unpaid' | 'pending' | 'paid' | 'failed' | 'expired' | 'cancelled' | 'refunded';
   paymentMethod: string;
   bookedAt: string;
   guestName: string;
@@ -168,6 +169,7 @@ export interface AuthUser {
   fullName: string;
   email: string;
   role: string;
+  hotelId: number | null;
 }
 
 export interface Notification {
@@ -177,4 +179,6 @@ export interface Notification {
   time: string;
   unread: boolean;
   type: 'booking' | 'promo' | 'system';
+  notificationType: string;
+  referenceType: string | null;
 }

@@ -16,7 +16,11 @@ export const bookingApi = {
   myBookings: () => http.get<BookingResponse[]>(`${BASE}/me`),
   cancel: (bookingId: number, reason?: string) =>
     http.post<BookingCancellationResponse>(`${BASE}/${bookingId}/cancel`, reason ? { reason } : {}),
-  // Admin-only.
+  cancellation: (bookingId: number) =>
+    http.get<BookingCancellationResponse>(`${BASE}/${bookingId}/cancellation`),
+  // Front-desk operations (ADMIN or RECEPTIONIST).
   checkIn: (bookingId: number, assignedRoomUnitId: number) =>
     http.post<BookingResponse>(`${ADMIN_BASE}/${bookingId}/check-in`, { assignedRoomUnitId }),
+  checkOut: (bookingId: number) =>
+    http.post<BookingResponse>(`${ADMIN_BASE}/${bookingId}/check-out`, {}),
 };

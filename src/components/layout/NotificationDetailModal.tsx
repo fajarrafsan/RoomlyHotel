@@ -20,6 +20,15 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
   if (!notification) return null;
 
   const parsed = parseNotificationMessage(notification.message);
+  const hasInvoiceAction = Boolean(
+    parsed.bookingCode
+    && onOpenInvoiceByCode
+    && (
+      parsed.invoiceNumber
+      || notification.referenceType === 'INVOICE'
+      || notification.notificationType === 'INVOICE_ISSUED'
+    )
+  );
 
   return (
     <AnimatePresence>
@@ -37,7 +46,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
           className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden relative my-auto max-h-[90vh] flex flex-col"
         >
           {/* Accent Line */}
-          <div className="h-1 w-full bg-gradient-to-r from-teal-500 via-emerald-500 to-amber-500 shrink-0" />
+          <div className="h-1 w-full bg-gradient-to-r from-navy via-navy to-gold shrink-0" />
 
           {/* Modal Header */}
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0 bg-slate-50/50">
@@ -47,7 +56,7 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
                   notification.type === 'booking'
                     ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                     : notification.type === 'promo'
-                    ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                    ? 'bg-gold-soft text-gold border border-gold/20'
                     : 'bg-slate-100 text-slate-600 border border-slate-200'
                 }`}
               >
@@ -146,12 +155,12 @@ export const NotificationDetailModal: React.FC<NotificationDetailModalProps> = (
                 </div>
 
                 {/* Direct Action Button */}
-                {parsed.bookingCode && onOpenInvoiceByCode && (
+                {hasInvoiceAction && (
                   <div className="pt-2">
                     <button
                       onClick={() => {
                         onClose();
-                        onOpenInvoiceByCode(parsed.bookingCode!);
+                        onOpenInvoiceByCode?.(parsed.bookingCode!);
                       }}
                       className="w-full py-2.5 px-4 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-[12px] font-semibold transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
                     >

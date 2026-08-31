@@ -1,6 +1,6 @@
 import { Hotel, HotelFacility } from '../../types';
 import { FacilityResponse, HotelResponse } from '../../types/api';
-import { CATEGORY_OPTIONS, FALLBACK_IMAGES, hashToIndex } from './assets';
+import { FALLBACK_IMAGES, hashToIndex } from './assets';
 
 export interface HotelEnrichment {
   pricePerNight?: number;
@@ -25,7 +25,11 @@ export function mapHotelToUI(h: HotelResponse, enrichment: HotelEnrichment = {})
     reviewsCount: enrichment.reviewsCount ?? 0,
     pricePerNight: enrichment.pricePerNight ?? 0,
     stars: h.starRating,
-    category: CATEGORY_OPTIONS[hashToIndex(h.id, CATEGORY_OPTIONS.length)],
+    category: h.propertyType === 'VILLA'
+      ? 'Villa'
+      : h.propertyType === 'APARTMENT'
+        ? 'Apartment'
+        : 'Hotel',
     image,
     gallery: [image],
     amenities: [],

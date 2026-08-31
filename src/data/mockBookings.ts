@@ -89,7 +89,9 @@ export const initialNotifications: Notification[] = [
     message: 'Reservasi Anda di The Mulia Resort Bali tersisa 7 hari lagi. Invoice telah siap!',
     time: '10 menit yang lalu',
     unread: true,
-    type: 'booking'
+    type: 'booking',
+    notificationType: 'CHECKIN_REMINDER',
+    referenceType: 'BOOKING'
   },
   {
     id: 'n2',
@@ -97,7 +99,9 @@ export const initialNotifications: Notification[] = [
     message: 'Gunakan kode promo "BALISALE20" untuk potongan hingga Rp 1.000.000 untuk penginapan resort.',
     time: '2 jam yang lalu',
     unread: true,
-    type: 'promo'
+    type: 'promo',
+    notificationType: 'PROMOTION',
+    referenceType: null
   },
   {
     id: 'n3',
@@ -105,6 +109,8 @@ export const initialNotifications: Notification[] = [
     message: 'Selamat! Poin membership Anda bertambah +450 Poin setelah masa inap di Hotel Indonesia Kempinski.',
     time: '1 hari yang lalu',
     unread: false,
-    type: 'system'
+    type: 'system',
+    notificationType: 'LOYALTY_UPDATE',
+    referenceType: null
   }
 ];

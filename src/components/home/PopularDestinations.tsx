@@ -1,7 +1,8 @@
 import React from 'react';
-import { motion } from 'motion/react';
+import { motion, useReducedMotion } from 'motion/react';
 import { ChevronRight, ArrowUpRight } from 'lucide-react';
 import { DashboardView } from '../../types';
+import { easeOutSoft } from './animations';
 
 interface Destination {
   city: string;
@@ -23,104 +24,101 @@ export const PopularDestinations: React.FC<PopularDestinationsProps> = ({
   onNavigateTo,
   onSearchCityChange
 }) => {
+  const reduceMotion = useReducedMotion();
+
+  const openCity = (city: string) => {
+    onSearchCityChange(city);
+    onNavigateTo('explore');
+  };
+
   return (
-    <div className="space-y-14">
-      {/* Section Header */}
-      <div className="flex items-end justify-between">
-        <div className="space-y-3">
-          <p className="text-[11px] font-medium text-amber-700 uppercase tracking-[0.25em]">
-            {isID ? 'Jelajahi' : 'Explore'}
+    <section className="space-y-8 sm:space-y-10" aria-labelledby="destinations-heading">
+      <div className="flex items-end justify-between gap-4">
+        <div className="space-y-2">
+          <p className="text-[12px] font-semibold text-gold uppercase tracking-[0.16em]">
+            {isID ? 'Jelajahi dunia' : 'Wanderlust'}
           </p>
-          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-light text-slate-900 tracking-tight leading-[1.1]">
-            {isID ? 'Destinasi ' : 'Popular '}
-            <span className="font-serif italic text-slate-700">{isID ? 'Populer' : 'Destinations'}</span>
+          <h2 id="destinations-heading" className="font-serif text-3xl sm:text-4xl lg:text-[2.75rem] text-[#1E3A8A] tracking-tight leading-[1.15]">
+            {isID ? 'Destinasi ikonik' : 'Signature destinations'}
           </h2>
         </div>
 
         <button
+          type="button"
           onClick={() => onNavigateTo('explore')}
-          className="group hidden sm:flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors duration-300 pb-1"
+          className="group hidden sm:inline-flex min-h-11 items-center gap-2 text-[14px] font-semibold text-slate-600 hover:text-[#1E3A8A] transition-colors duration-200 cursor-pointer"
         >
-          <span>{isID ? 'Lihat Semua' : 'View All'}</span>
-          <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+          <span>{isID ? 'Lihat semua' : 'View all'}</span>
+          <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform duration-200" aria-hidden />
         </button>
       </div>
 
-      {/* Destinations Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-5">
-        {destinations.map((dest, idx) => (
-          <motion.div
-            key={dest.city}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '50px' }}
-            transition={{ duration: 0.4, delay: Math.min(idx, 6) * 0.05, ease: 'easeOut' }}
-            onClick={() => {
-              onSearchCityChange(dest.city);
-              onNavigateTo('explore');
-            }}
-            className="group relative aspect-[2/3] rounded-[2rem] overflow-hidden cursor-pointer shadow-sm hover:shadow-2xl hover:shadow-slate-900/15 will-change-transform transform-gpu hover:-translate-y-1.5 transition-transform duration-300 ease-out"
-          >
-            {/* Image */}
-            <img
-              src={dest.image}
-              alt={dest.title}
-              loading="lazy"
-              decoding="async"
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
-            />
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 auto-rows-[200px] sm:auto-rows-[220px] lg:auto-rows-[230px]">
+        {destinations.map((dest, idx) => {
+          const featured = idx === 0;
+          const stayLabel = isID
+            ? `${dest.count.toLocaleString('id-ID')}+ hotel & resor`
+            : `${dest.count.toLocaleString('en-US')}+ stays`;
 
-            {/* Overlay — Cinematic gradient */}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/20 to-slate-950/5" />
+          return (
+            <motion.button
+              key={dest.city}
+              type="button"
+              initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '50px' }}
+              whileHover={reduceMotion ? undefined : { y: -4 }}
+              transition={{ duration: 0.3, delay: Math.min(idx, 5) * 0.05, ease: easeOutSoft }}
+              onClick={() => openCity(dest.city)}
+              aria-label={`${dest.city}, ${stayLabel}`}
+              className={`group relative rounded-3xl overflow-hidden cursor-pointer text-left shadow-[0_8px_28px_rgba(30,58,138,0.08)] hover:shadow-[0_16px_40px_rgba(30,58,138,0.14)] transition-shadow duration-200 ${
+                featured ? 'col-span-2 row-span-2 min-h-[280px] sm:min-h-0' : ''
+              }`}
+            >
+              <img
+                src={dest.image}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#0B1B3A] via-[#0B1B3A]/30 to-transparent" />
 
-            {/* Index Number — Editorial feel */}
-            <div className="absolute top-5 left-5 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-2 group-hover:translate-y-0">
-              <span className="text-[11px] font-medium text-white/30 tracking-widest">
-                {String(idx + 1).padStart(2, '0')}
-              </span>
-            </div>
-
-            {/* Top-right arrow indicator */}
-            <div className="absolute top-5 right-5 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-2 group-hover:translate-y-0 delay-75">
-              <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center">
-                <ArrowUpRight className="w-4 h-4 text-white" />
+              <div className="absolute top-4 left-4">
+                <span className="text-[12px] font-semibold tracking-[0.14em] text-gold-light">
+                  {String(idx + 1).padStart(2, '0')}
+                </span>
               </div>
-            </div>
 
-            {/* Bottom Content */}
-            <div className="absolute inset-x-0 bottom-0 p-6">
-              {/* Animated line accent */}
-              <div className="w-8 h-[2px] bg-amber-400/80 mb-4 origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500 ease-out" />
+              <div className="absolute top-3 right-3 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-200">
+                <div className="w-10 h-10 rounded-full bg-white/95 flex items-center justify-center">
+                  <ArrowUpRight className="w-4 h-4 text-[#1E3A8A]" aria-hidden />
+                </div>
+              </div>
 
-              <h3 className="text-white text-xl font-light tracking-tight leading-tight group-hover:text-amber-100 transition-colors duration-500">
-                <span className="font-serif italic">{dest.city}</span>
-              </h3>
-
-              <div className="mt-2 overflow-hidden">
-                <p className="text-white/40 text-[11px] font-medium tracking-wide translate-y-full group-hover:translate-y-0 transition-transform duration-500 ease-out delay-75">
-                  {isID
-                    ? `${dest.count.toLocaleString('id-ID')}+ hotel & resor`
-                    : `${dest.count.toLocaleString('en-US')}+ stays`}
+              <div className="absolute inset-x-0 bottom-0 p-4 sm:p-5">
+                <h3 className={`text-white font-serif tracking-tight ${featured ? 'text-2xl sm:text-3xl' : 'text-lg sm:text-xl'}`}>
+                  {dest.city}
+                </h3>
+                <p className="mt-1 text-white/80 text-[12px] sm:text-[13px] font-medium">
+                  {stayLabel}
                 </p>
               </div>
-            </div>
-
-            {/* Hover border glow */}
-            <div className="absolute inset-0 rounded-[2rem] border border-white/0 group-hover:border-white/10 transition-colors duration-500 pointer-events-none" />
-          </motion.div>
-        ))}
+            </motion.button>
+          );
+        })}
       </div>
 
-      {/* Mobile View All Button */}
       <div className="sm:hidden flex justify-center">
         <button
+          type="button"
           onClick={() => onNavigateTo('explore')}
-          className="group flex items-center gap-2 text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors duration-300"
+          className="group inline-flex min-h-11 items-center gap-2 text-[14px] font-semibold text-slate-600 hover:text-[#1E3A8A] transition-colors duration-200 cursor-pointer"
         >
-          <span>{isID ? 'Lihat Semua Destinasi' : 'View All Destinations'}</span>
-          <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
+          <span>{isID ? 'Lihat semua destinasi' : 'View all destinations'}</span>
+          <ChevronRight className="w-4 h-4" aria-hidden />
         </button>
       </div>
-    </div>
+    </section>
   );
 };

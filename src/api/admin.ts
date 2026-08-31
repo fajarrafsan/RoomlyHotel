@@ -1,6 +1,6 @@
 import { buildQuery, fetchFile, http, postForm, SERVICE } from '../lib/http';
 import { Role } from '../types/api/auth';
-import { BookingCancellationResponse, BookingResponse } from '../types/api/booking';
+import { BookingCancellationResponse, BookingResponse, CancellationStatus } from '../types/api/booking';
 import {
   CreateFacilityRequest, CreateHotelRequest, FacilityResponse, HotelImageResponse,
   HotelResponse, UpdateFacilityRequest, UpdateHotelRequest
@@ -14,7 +14,13 @@ import {
   UpdateAmenityRequest, UpdateImageRequest, UpdateRoomCompositionRequest, UpdateRoomPolicyRequest,
   UpdateRoomPriceRequest, UpdateRoomRequest, UpdateRoomUnitRequest
 } from '../types/api/room';
-import { NotificationResponse, SendNotificationRequest } from '../types/api/notification';
+import {
+  CreateNotificationTemplateRequest,
+  NotificationResponse,
+  NotificationTemplateResponse,
+  SendNotificationRequest,
+  UpdateNotificationTemplateRequest,
+} from '../types/api/notification';
 import { InvoiceEventResponse, InvoiceResponse, InvoiceStatus, InvoiceSummaryResponse, SpringPage } from '../types/api/invoice';
 import { PagedResponse } from '../types/api/common';
 import { PaymentResponse } from '../types/api/payment';
@@ -25,10 +31,17 @@ export interface StaffUserDto {
   fullName: string;
   email: string;
   role: Role;
-  hotelId?: number;
+  hotelId: number | null;
+  status: 'ACTIVE' | 'INACTIVE';
   active: boolean;
   createdAt?: string;
 }
+
+type StaffUserApiDto = Omit<StaffUserDto, 'active' | 'hotelId' | 'status'> & {
+  active?: boolean;
+  hotelId?: number | null;
+  status?: 'ACTIVE' | 'INACTIVE';
+};
 
 export interface CreateStaffRequestDto {
   fullName: string;
@@ -56,21 +69,33 @@ const CANCELLATION_ADMIN_BASE = `${SERVICE.booking}/api/admin/cancellations`;
 const PAYMENT_ADMIN_BASE = `${SERVICE.payment}/api/admin/payments`;
 const INVOICE_ADMIN_BASE = `${SERVICE.invoice}/api/admin/invoices`;
 const REVIEW_ADMIN_BASE = `${SERVICE.review}/api/admin/reviews`;
+const NOTIFICATION_TEMPLATE_ADMIN_BASE = `${SERVICE.notification}/api/admin/notification-templates`;
 const HOTEL_ADMIN_BASE = `${SERVICE.hotel}/api/admin/hotels`;
 // room-service mounts its room CRUD under /api/admin/hotels (not /api/admin/rooms),
 // while room units, prices, policies and images live under /api/admin/rooms.
 const ROOM_ADMIN_HOTEL_BASE = `${SERVICE.room}/api/admin/hotels`;
 const ROOM_ADMIN_BASE = `${SERVICE.room}/api/admin/rooms`;
 
+const normalizeStaff = (staff: StaffUserApiDto): StaffUserDto => {
+  const active = typeof staff.active === 'boolean' ? staff.active : staff.status === 'ACTIVE';
+  return {
+    ...staff,
+    hotelId: staff.hotelId ?? null,
+    active,
+    status: staff.status ?? (active ? 'ACTIVE' : 'INACTIVE'),
+  };
+};
+
 export const adminApi = {
   // ---- Staff (auth-service /api/admin/staff) ----
-  listStaff: () => http.get<StaffUserDto[]>(AUTH_ADMIN_BASE),
-  createStaff: (payload: CreateStaffRequestDto) => http.post<StaffUserDto>(AUTH_ADMIN_BASE, payload),
+  listStaff: async () => (await http.get<StaffUserApiDto[]>(AUTH_ADMIN_BASE)).map(normalizeStaff),
+  createStaff: async (payload: CreateStaffRequestDto) =>
+    normalizeStaff(await http.post<StaffUserApiDto>(AUTH_ADMIN_BASE, payload)),
   deactivateStaff: (staffId: number) => http.patch<void>(`${AUTH_ADMIN_BASE}/${staffId}/deactivate`),
 
   // ---- Bookings (booking-service /api/admin/bookings) ----
   listAllBookings: (status?: string) =>
-    http.get<BookingResponse[]>(`${BOOKING_ADMIN_BASE}${buildQuery({ status })}`).catch(() => []),
+    http.get<BookingResponse[]>(`${BOOKING_ADMIN_BASE}${buildQuery({ status })}`),
   confirmBooking: (bookingId: number) =>
     http.post<BookingResponse>(`${BOOKING_ADMIN_BASE}/${bookingId}/confirm`, {}),
   checkIn: (bookingId: number, assignedRoomUnitId: number) =>
@@ -79,29 +104,21 @@ export const adminApi = {
     http.post<BookingResponse>(`${BOOKING_ADMIN_BASE}/${bookingId}/check-out`),
 
   // ---- Cancellations (booking-service /api/admin/cancellations) ----
-  listCancellations: (status?: string) =>
-    http.get<BookingCancellationResponse[]>(`${CANCELLATION_ADMIN_BASE}${buildQuery({ status })}`).catch(() => []),
+  listCancellations: (status?: CancellationStatus) =>
+    http.get<BookingCancellationResponse[]>(`${CANCELLATION_ADMIN_BASE}${buildQuery({ status })}`),
 
   // ---- Payments (payment-service /api/admin/payments) ----
   listPayments: (status?: string) =>
-    http.get<PaymentResponse[]>(`${PAYMENT_ADMIN_BASE}${buildQuery({ status })}`).catch(() => []),
+    http.get<PaymentResponse[]>(`${PAYMENT_ADMIN_BASE}${buildQuery({ status })}`),
   expirePayment: (paymentId: number) =>
     http.post<PaymentResponse>(`${PAYMENT_ADMIN_BASE}/${paymentId}/expire`),
 
   // ---- Invoices (invoice-service /api/admin/invoices) ----
   // invoice-service returns a raw Spring Data Page, not Roomly's PagedResponse.
   searchInvoices: (filters: AdminInvoiceFilters = {}) =>
-    http
-      .get<SpringPage<InvoiceSummaryResponse>>(
-        `${INVOICE_ADMIN_BASE}${buildQuery({ page: 0, size: 20, ...filters })}`
-      )
-      .catch(() => ({
-        content: [],
-        totalElements: 0,
-        totalPages: 0,
-        number: 0,
-        size: filters.size || 20,
-      })),
+    http.get<SpringPage<InvoiceSummaryResponse>>(
+      `${INVOICE_ADMIN_BASE}${buildQuery({ page: 0, size: 20, ...filters })}`
+    ),
   getInvoice: (id: number) => http.get<InvoiceResponse>(`${INVOICE_ADMIN_BASE}/${id}`),
   invoiceHistory: (id: number) => http.get<InvoiceEventResponse[]>(`${INVOICE_ADMIN_BASE}/${id}/history`),
   downloadInvoicePdf: (id: number) => fetchFile(`${INVOICE_ADMIN_BASE}/${id}/pdf`),
@@ -238,4 +255,14 @@ export const adminApi = {
     ),
   sendNotification: (payload: SendNotificationRequest) =>
     http.post<void>(`${SERVICE.notification}/api/admin/notifications/send`, payload),
+
+  // ---- Notification templates (notification-service /api/admin/notification-templates) ----
+  // Raw JSON again, and the backend rejects a second template for the same
+  // (eventType, channel) pair — the UI must surface that error, not retry.
+  listNotificationTemplates: () =>
+    http.get<NotificationTemplateResponse[]>(NOTIFICATION_TEMPLATE_ADMIN_BASE),
+  createNotificationTemplate: (payload: CreateNotificationTemplateRequest) =>
+    http.post<NotificationTemplateResponse>(NOTIFICATION_TEMPLATE_ADMIN_BASE, payload),
+  updateNotificationTemplate: (id: number, payload: UpdateNotificationTemplateRequest) =>
+    http.patch<NotificationTemplateResponse>(`${NOTIFICATION_TEMPLATE_ADMIN_BASE}/${id}`, payload),
 };

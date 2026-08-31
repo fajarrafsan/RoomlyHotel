@@ -1,5 +1,6 @@
 import React from 'react';
 import { motion } from 'motion/react';
+import { easeSmooth } from '../../lib/motion';
 
 interface PasswordStrengthMeterProps {
   password: string;
@@ -8,19 +9,26 @@ interface PasswordStrengthMeterProps {
 
 export const PasswordStrengthMeter: React.FC<PasswordStrengthMeterProps> = ({ password, isID }) => {
   const strength = password.length >= 12 ? 'strong' : password.length >= 8 ? 'medium' : 'weak';
+  const label =
+    strength === 'strong'
+      ? (isID ? 'Kuat' : 'Strong')
+      : strength === 'medium'
+        ? (isID ? 'Sedang' : 'Medium')
+        : (isID ? 'Lemah' : 'Weak');
 
   return (
-    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="mt-2 flex items-center gap-2">
-      <div className="flex-1 h-1 rounded-full bg-slate-100 overflow-hidden">
+    <div className="mt-2 flex items-center gap-2" aria-live="polite">
+      <div className="flex-1 h-1.5 rounded-full bg-navy-soft overflow-hidden" aria-hidden>
         <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: strength === 'strong' ? '100%' : strength === 'medium' ? '66%' : '33%' }}
-          className={`h-full rounded-full ${strength === 'strong' ? 'bg-emerald-500' : strength === 'medium' ? 'bg-amber-400' : 'bg-rose-400'}`}
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: strength === 'strong' ? 1 : strength === 'medium' ? 0.66 : 0.33 }}
+          transition={{ duration: 0.3, ease: easeSmooth }}
+          className={`h-full w-full origin-left rounded-full ${
+            strength === 'strong' ? 'bg-emerald-600' : strength === 'medium' ? 'bg-gold' : 'bg-rose-500'
+          }`}
         />
       </div>
-      <span className="text-[10px] font-medium text-slate-400">
-        {strength === 'strong' ? (isID ? 'Kuat' : 'Strong') : strength === 'medium' ? (isID ? 'Sedang' : 'Medium') : (isID ? 'Lemah' : 'Weak')}
-      </span>
-    </motion.div>
+      <span className="text-[11px] font-medium text-slate-500">{label}</span>
+    </div>
   );
 };

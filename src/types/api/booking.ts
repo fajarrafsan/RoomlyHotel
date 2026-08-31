@@ -4,6 +4,8 @@ export type BookingStatus =
   | 'PENDING' | 'WAITING_PAYMENT' | 'CONFIRMED' | 'CANCELLED'
   | 'CHECKED_IN' | 'CHECKED_OUT' | 'NO_SHOW' | 'EXPIRED';
 export type BookingPaymentStatus = 'UNPAID' | 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'CANCELLED';
+export type CancellationStatus = 'REQUESTED' | 'COMPLETED' | 'REJECTED';
+export type RefundStatus = 'NOT_REQUIRED' | 'PENDING' | 'PROCESSING' | 'REFUNDED' | 'FAILED' | 'REJECTED';
 
 export interface CreateBookingGuestRequest {
   fullName: string;
@@ -88,7 +90,7 @@ export interface BookingCancellationResponse {
   refundable: boolean;
   cancellationFeeAmount: number | null;
   refundAmount: number | null;
-  refundStatus: string;
-  status: string;
+  refundStatus: RefundStatus;
+  status: CancellationStatus;
   cancelledAt: string;
 }

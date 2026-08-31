@@ -1,5 +1,39 @@
 import { ApiErrorBody } from '../types/api';
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+
+const serviceUrl = (serviceName: string) => `${API_BASE_URL}/${serviceName}`;
+
+// Service prefixes are same-origin by default so Vite's development proxy keeps
+// working. Production can point them at the gateway with VITE_API_BASE_URL.
+export const SERVICE = {
+  auth: serviceUrl('auth-service'),
+  hotel: serviceUrl('hotel-service'),
+  room: serviceUrl('room-service'),
+  booking: serviceUrl('booking-service'),
+  payment: serviceUrl('payment-service'),
+  review: serviceUrl('review-service'),
+  notification: serviceUrl('notification-service'),
+  invoice: serviceUrl('invoice-service'),
+  housekeeping: serviceUrl('housekeeping-service'),
+} as const;
+
+const AUTH_BASE = `${SERVICE.auth}/api/auth`;
+const REFRESH_PATH = `${AUTH_BASE}/refresh`;
+const REFRESH_EXCLUDED_PATHS = new Set([
+  `${AUTH_BASE}/register`,
+  `${AUTH_BASE}/login`,
+  `${AUTH_BASE}/google`,
+  `${AUTH_BASE}/admin/verify-otp`,
+  `${AUTH_BASE}/logout`,
+  REFRESH_PATH,
+]);
+
+export const AUTH_SESSION_EXPIRED_EVENT = 'roomly:auth-session-expired';
+
+let refreshPromise: Promise<boolean> | null = null;
+let refreshGeneration = 0;
+
 export class ApiError extends Error {
   status: number;
   body: ApiErrorBody | null;
@@ -35,10 +69,56 @@ async function parseBody(res: Response): Promise<unknown> {
   }
 }
 
+function canRefresh(path: string): boolean {
+  return !REFRESH_EXCLUDED_PATHS.has(path.split('?')[0]);
+}
+
+async function refreshSession(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(REFRESH_PATH, {
+      method: 'POST',
+      credentials: 'include',
+    })
+      .then((response) => {
+        if (response.ok) refreshGeneration += 1;
+        return response.ok;
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+
+  return refreshPromise;
+}
+
+/**
+ * Performs one authenticated retry after a 401. Concurrent 401 responses share
+ * the same refresh request, and the refresh endpoint itself is never retried.
+ */
+async function fetchWithAuthRetry(path: string, options: RequestInit = {}): Promise<Response> {
+  const requestOptions: RequestInit = { ...options, credentials: 'include' };
+  const requestGeneration = refreshGeneration;
+  const response = await fetch(path, requestOptions);
+
+  if (response.status !== 401 || !canRefresh(path)) return response;
+  // A different request may already have refreshed while this request was in
+  // flight. In that case retry with the new cookies without rotating again.
+  if (requestGeneration === refreshGeneration && !(await refreshSession())) {
+    window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+    return response;
+  }
+
+  const retryResponse = await fetch(path, requestOptions);
+  if (retryResponse.status === 401) {
+    window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+  }
+  return retryResponse;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetchWithAuthRetry(path, {
     ...options,
-    credentials: 'include',
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {}),
@@ -76,7 +156,7 @@ export const http = {
  * setting it manually breaks the upload.
  */
 export async function postForm<T>(path: string, form: FormData): Promise<T> {
-  const res = await fetch(path, { method: 'POST', body: form, credentials: 'include' });
+  const res = await fetchWithAuthRetry(path, { method: 'POST', body: form });
   const payload = await parseBody(res);
 
   if (!res.ok) {
@@ -130,7 +210,7 @@ export interface FileDownload {
 }
 
 export async function fetchFile(path: string): Promise<FileDownload> {
-  const res = await fetch(path, { credentials: 'include' });
+  const res = await fetchWithAuthRetry(path);
 
   if (!res.ok) {
     const text = await res.text();
@@ -145,15 +225,3 @@ export async function fetchFile(path: string): Promise<FileDownload> {
   const blob = await res.blob();
   return { blob, filename };
 }
-
-// Service prefixes proxied by Vite (see vite.config.ts) straight to the Roomly gateway.
-export const SERVICE = {
-  auth: '/auth-service',
-  hotel: '/hotel-service',
-  room: '/room-service',
-  booking: '/booking-service',
-  payment: '/payment-service',
-  review: '/review-service',
-  notification: '/notification-service',
-  invoice: '/invoice-service',
-} as const;

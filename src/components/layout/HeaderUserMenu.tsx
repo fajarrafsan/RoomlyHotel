@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { LogIn, LogOut } from 'lucide-react';
-import { VIEW_PATHS } from '../../lib/routes';
+import { roleLandingPath } from '../../lib/routes';
 
 interface HeaderUserMenuProps {
   isID: boolean;
@@ -15,40 +15,52 @@ export const HeaderUserMenu: React.FC<HeaderUserMenuProps> = ({ isID, user, onLo
   if (!user) {
     return (
       <motion.button
+        type="button"
         onClick={onOpenAuth}
-        whileHover={{ scale: 1.02 }}
+        whileHover={{ scale: 1.015 }}
         whileTap={{ scale: 0.98 }}
-        className="flex items-center gap-1 px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg sm:rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-[11px] sm:text-xs transition-colors cursor-pointer shrink-0"
+        className="inline-flex items-center justify-center gap-1.5 min-h-11 px-3 sm:px-4 rounded-xl bg-navy hover:bg-navy-dark text-white font-semibold text-[12px] sm:text-[13px] transition-colors duration-200 cursor-pointer shrink-0"
       >
-        <LogIn className="w-3.5 h-3.5 shrink-0" />
-        <span>{isID ? 'Masuk' : 'Sign In'}</span>
+        <LogIn className="w-3.5 h-3.5 shrink-0" aria-hidden />
+        <span>{isID ? 'Masuk' : 'Sign in'}</span>
       </motion.button>
     );
   }
 
+  const roleLabels: Record<string, { id: string; en: string }> = {
+    ADMIN: { id: 'Administrator', en: 'Administrator' },
+    RECEPTIONIST: { id: 'Resepsionis', en: 'Receptionist' },
+    HOUSEKEEPING: { id: 'Housekeeping', en: 'Housekeeping' },
+    MAINTENANCE: { id: 'Teknisi', en: 'Maintenance' },
+    CUSTOMER: { id: 'Anggota', en: 'Member' },
+  };
+  const roleLabel = roleLabels[user.role ?? 'CUSTOMER'] ?? roleLabels.CUSTOMER;
+
   return (
-    <div className="flex items-center gap-1 sm:gap-3 pl-1.5 sm:pl-3 border-l border-slate-100 shrink-0">
+    <div className="flex items-center gap-1 sm:gap-2 pl-1.5 sm:pl-3 border-l border-navy-soft shrink-0">
       <Link
-        to={user.role === 'ADMIN' ? VIEW_PATHS.admin : VIEW_PATHS.settings}
-        className="flex items-center gap-1.5 sm:gap-3 cursor-pointer p-0.5 sm:p-1 rounded-xl hover:bg-slate-100 transition-all group shrink-0"
+        to={user.role === 'CUSTOMER' ? '/settings' : roleLandingPath(user.role)}
+        className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer p-1 rounded-xl hover:bg-navy-soft transition-colors duration-200 group shrink-0"
         title={user.fullName}
       >
-        <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-900 text-white font-semibold flex items-center justify-center text-[10px] sm:text-xs shrink-0 shadow-xs">
+        <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-navy text-white font-semibold flex items-center justify-center text-[11px] sm:text-xs shrink-0">
           {user.fullName.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
         </div>
         <div className="hidden xl:flex flex-col">
-          <span className="text-[13px] font-semibold text-slate-900 leading-tight">
+          <span className="text-[13px] font-semibold text-navy leading-tight">
             {user.fullName}
           </span>
-          <span className="text-[10px] text-slate-400 font-medium">
-            {user.role === 'ADMIN' ? (isID ? 'Administrator' : 'Admin') : (isID ? 'Anggota' : 'Member')}
+          <span className="text-[11px] text-slate-500 font-medium">
+            {isID ? roleLabel.id : roleLabel.en}
           </span>
         </div>
       </Link>
       <button
+        type="button"
         onClick={onLogout}
         title={isID ? 'Keluar' : 'Log out'}
-        className="hidden sm:flex p-2 rounded-xl text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer shrink-0"
+        aria-label={isID ? 'Keluar' : 'Log out'}
+        className="hidden sm:inline-flex min-w-11 min-h-11 items-center justify-center rounded-xl text-slate-500 hover:text-navy hover:bg-navy-soft transition-colors duration-200 cursor-pointer shrink-0"
       >
         <LogOut className="w-4 h-4" />
       </button>

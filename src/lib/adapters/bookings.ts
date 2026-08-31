@@ -22,9 +22,7 @@ function mapBookingStatus(status: BookingStatus): Booking['status'] {
 }
 
 function mapPaymentStatus(status: BookingPaymentStatus): Booking['paymentStatus'] {
-  if (status === 'PAID') return 'paid';
-  if (status === 'REFUNDED') return 'refunded';
-  return 'pending';
+  return status.toLowerCase() as Booking['paymentStatus'];
 }
 
 export interface BookingEnrichment {
@@ -43,6 +41,7 @@ export function mapBookingToUI(b: BookingResponse, enrichment: BookingEnrichment
     id: String(b.id),
     bookingCode: b.bookingCode,
     hotelId: String(b.hotelId),
+    roomId: String(b.roomId),
     hotelName: b.hotelName || `Hotel #${b.hotelId}`,
     hotelImage: enrichment.hotelImage || FALLBACK_IMAGES[hashToIndex(b.hotelId, FALLBACK_IMAGES.length)],
     hotelLocation: enrichment.hotelLocation || '',

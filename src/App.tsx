@@ -18,6 +18,7 @@ import { AdminReviewsPage } from './pages/AdminReviewsPage';
 import { AdminHotelsPage } from './pages/AdminHotelsPage';
 import { AdminMasterDataPage } from './pages/AdminMasterDataPage';
 import { AdminNotificationsPage } from './pages/AdminNotificationsPage';
+import { HousekeepingPage } from './pages/HousekeepingPage';
 import { BookingCheckoutPage } from './pages/BookingCheckoutPage';
 import { InvoiceModal } from './components/booking/InvoiceModal';
 import { AuthModal } from './components/auth/AuthModal';
@@ -29,8 +30,8 @@ import { mapBookingToUI } from './lib/adapters';
 import { useAuth } from './context/AuthContext';
 import { useHotelCatalog } from './hooks/useHotelCatalog';
 import { useUserData } from './hooks/useUserData';
-import { ADMIN_PATHS, CUSTOMER_ONLY_PATHS, viewToPath } from './lib/routes';
-import { DashboardView, Language, Hotel, RoomType, Booking, Notification } from './types';
+import { isCustomerOnlyPath, isOperationsRole, roleLandingPath, viewToPath } from './lib/routes';
+import { DashboardView, Language, Hotel, RoomType, Booking } from './types';
 
 export default function App() {
   const { user } = useAuth();
@@ -48,15 +49,14 @@ export default function App() {
     localStorage.removeItem('heavenly_theme');
   }, []);
 
-  // An ADMIN session runs the operations console, so the storefront routes
-  // (home, explore, personal bookings, wishlist, analytics) are redirected to
-  // the dashboard rather than rendered — including a fresh login landing on "/".
-  const isAdmin = user?.role === 'ADMIN';
+  // Staff sessions run role-specific operations workspaces, so storefront-only
+  // routes redirect to the first screen that role can actually operate.
+  const isOperations = isOperationsRole(user?.role);
   useEffect(() => {
-    if (isAdmin && CUSTOMER_ONLY_PATHS.includes(location.pathname)) {
-      navigate(ADMIN_PATHS.dashboard, { replace: true });
+    if (isOperations && isCustomerOnlyPath(location.pathname)) {
+      navigate(roleLandingPath(user?.role), { replace: true });
     }
-  }, [isAdmin, location.pathname, navigate]);
+  }, [isOperations, location.pathname, navigate, user?.role]);
 
   // Hotel catalog + lazy per-hotel detail enrichment.
   const {
@@ -98,8 +98,9 @@ export default function App() {
   const {
     bookings,
     setBookings,
+    refreshBookings,
     notifications,
-    setNotifications,
+    refreshNotifications,
     wishlistIds,
     handleToggleWishlist,
     handleMarkNotificationsRead,
@@ -111,21 +112,16 @@ export default function App() {
   // Complete Booking — BookingCheckoutPage already created the real booking (and
   // payment session) against Roomly; this just folds the result into local state.
   const handleCompleteBooking = (newBooking: Booking) => {
-    setBookings((prev) => [newBooking, ...prev]);
+    setBookings((prev) => {
+      const exists = prev.some((booking) => booking.id === newBooking.id);
+      return exists
+        ? prev.map((booking) => booking.id === newBooking.id ? newBooking : booking)
+        : [newBooking, ...prev];
+    });
     setSelectedHotelForModal(null);
-    setActiveInvoiceBooking(newBooking);
-
-    const newNotif: Notification = {
-      id: `local-${Date.now()}`,
-      title: language === 'ID' ? 'Pemesanan Diterima!' : 'Booking Received!',
-      message: language === 'ID'
-        ? `Reservasi Anda di ${newBooking.hotelName} telah dibuat. Kode: ${newBooking.bookingCode}`
-        : `Your stay at ${newBooking.hotelName} has been created. Code: ${newBooking.bookingCode}`,
-      time: language === 'ID' ? 'Baru saja' : 'Just now',
-      unread: true,
-      type: 'booking'
-    };
-    setNotifications((prev) => [newNotif, ...prev]);
+    // The real invoice is only issued asynchronously after PAYMENT_SUCCESS.
+    // Do not open a receipt or create a fake notification before that happens.
+    window.setTimeout(refreshNotifications, 1_500);
   };
 
   // Opening an invoice from a notification: the booking may not be in the
@@ -209,7 +205,7 @@ export default function App() {
 
       {/* Full-Width Main Content Container */}
       <div className="flex-1 w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <main className="w-full h-full">
+        <main id="main-content" className="w-full h-full">
         {hotelsLoading && hotels.length === 0 && !hotelsError ? (
           location.pathname.startsWith('/hotel/') || location.pathname.startsWith('/booking/')
             ? <RoomDetailPageSkeleton />
@@ -218,10 +214,10 @@ export default function App() {
         <AnimatePresence mode="wait">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
           >
             <Routes location={location}>
               <Route
@@ -301,6 +297,7 @@ export default function App() {
                   <SettingsPage
                     language={language}
                     onLanguageChange={setLanguage}
+                    onOpenAuth={() => setShowAuthModal(true)}
                   />
                 }
               />
@@ -326,13 +323,15 @@ export default function App() {
                   <BookingCheckoutPage
                     hotels={hotels}
                     onCompleteBooking={handleCompleteBooking}
+                    onBookingStatusChanged={refreshBookings}
                     language={language}
                   />
                 }
               />
 
-              {/* Front-desk check-in (manual booking-code lookup) — access-gated to ADMIN inside the page itself. */}
+              {/* Role-specific staff workspaces. Each page also enforces its own access guard. */}
               <Route path="/staff/check-in" element={<CheckInPage language={language} />} />
+              <Route path="/staff/housekeeping" element={<HousekeepingPage language={language} />} />
 
               {/* ===== Admin console — every screen is ADMIN-gated inside itself,
                    and each maps onto a Roomly /api/admin/** endpoint group. ===== */}

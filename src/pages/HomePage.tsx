@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion, useReducedMotion } from 'motion/react';
 import { Booking, Hotel, Language, DashboardView } from '../types';
 import { HeroSection } from '../components/home/HeroSection';
 import { ActiveBookingBanner } from '../components/home/ActiveBookingBanner';
@@ -6,6 +7,7 @@ import { PopularDestinations } from '../components/home/PopularDestinations';
 import { RecommendedHotels } from '../components/hotels/RecommendedHotels';
 import { WhyChooseUsSection } from '../components/home/WhyChooseUsSection';
 import { NewsletterCTA } from '../components/home/NewsletterCTA';
+import { easeOutSoft } from '../components/home/animations';
 
 interface HomePageProps {
   bookings: Booking[];
@@ -17,7 +19,6 @@ interface HomePageProps {
   language: Language;
   searchCity: string;
   onSearchCityChange: (city: string) => void;
-  /* opsional â€” untuk RecommendedHotels premium */
   wishlistIds?: string[];
   onToggleWishlist?: (hotelId: string) => void;
 }
@@ -35,16 +36,13 @@ export const HomePage: React.FC<HomePageProps> = ({
   onToggleWishlist = () => {},
 }) => {
   const isID = language === 'ID';
+  const reduceMotion = useReducedMotion();
 
   const upcomingBooking = bookings.find((b) => b.status === 'confirmed');
   const wishlistedHotels = [...hotels]
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 8);
 
-  // Count hotels by substring match against the real city data, e.g. the
-  // "Jakarta" card counts "Jakarta Pusat", "Jakarta Selatan", etc. — matches
-  // the same substring logic useHotelFilters uses when the card is clicked,
-  // so the number shown here is never inconsistent with what clicking it reveals.
   const countByCity = (label: string) =>
     hotels.filter((h) => h.city.toLowerCase().includes(label.toLowerCase())).length;
 
@@ -57,9 +55,15 @@ export const HomePage: React.FC<HomePageProps> = ({
     { city: 'Singapore', title: 'Singapore City', image: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?auto=format&fit=crop&w=800&q=85', count: countByCity('Singapore') }
   ];
 
+  const stats = [
+    { value: '2.4k+', label: isID ? 'Properti kurasi' : 'Curated stays' },
+    { value: '4.9', label: isID ? 'Rating tamu' : 'Guest rating' },
+    { value: '24/7', label: isID ? 'Concierge' : 'Concierge' },
+    { value: '30%', label: isID ? 'Hemat member' : 'Member savings' },
+  ];
+
   return (
-    <div className="space-y-20 pb-20 text-slate-800">
-      {/* ===== HERO SECTION ===== */}
+    <div className="home-luxury pb-24 text-slate-800">
       <HeroSection
         language={language}
         searchCity={searchCity}
@@ -67,9 +71,26 @@ export const HomePage: React.FC<HomePageProps> = ({
         onNavigateTo={onNavigateTo}
       />
 
-      {/* ===== MAIN CONTENT ===== */}
-      <div className="max-w-[1800px] mx-auto px-4 sm:px-8 lg:px-12 2xl:px-16 space-y-24">
-        {/* Active Booking Banner */}
+      <div className="relative z-10 -mt-8 max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12">
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.12, ease: easeOutSoft }}
+          className="grid grid-cols-2 md:grid-cols-4 gap-3"
+        >
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl bg-white border border-[#E9EEF5] px-5 py-6 text-center shadow-[0_12px_40px_rgba(30,58,138,0.08)]"
+            >
+              <p className="font-serif text-2xl sm:text-3xl text-[#1E3A8A] tracking-tight">{stat.value}</p>
+              <p className="mt-1.5 text-xs sm:text-[13px] text-slate-600 font-medium">{stat.label}</p>
+            </div>
+          ))}
+        </motion.div>
+      </div>
+
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-8 lg:px-12 2xl:px-16 space-y-20 sm:space-y-24 mt-16 sm:mt-20">
         {upcomingBooking && (
           <ActiveBookingBanner
             booking={upcomingBooking}
@@ -78,7 +99,6 @@ export const HomePage: React.FC<HomePageProps> = ({
           />
         )}
 
-        {/* Popular Destinations */}
         <PopularDestinations
           destinations={popularDestinations}
           isID={isID}
@@ -86,7 +106,6 @@ export const HomePage: React.FC<HomePageProps> = ({
           onSearchCityChange={onSearchCityChange}
         />
 
-        {/* Recommended Hotels */}
         <RecommendedHotels
           hotels={wishlistedHotels}
           isID={isID}
@@ -97,10 +116,8 @@ export const HomePage: React.FC<HomePageProps> = ({
           language={language}
         />
 
-        {/* Why Choose Us */}
         <WhyChooseUsSection isID={isID} />
 
-        {/* Newsletter / CTA Section */}
         <NewsletterCTA isID={isID} onNavigateTo={onNavigateTo} />
       </div>
     </div>

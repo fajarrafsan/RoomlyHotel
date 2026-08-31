@@ -1,8 +1,7 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { motion } from 'motion/react';
 import {
-  ArrowLeft, ArrowRight, Maximize2, Bed, Users, Baby, Eye,
+  ArrowLeft, ArrowRight, Maximize2, Bed, Users, Baby, MapPin,
   SearchX, CalendarClock, CheckCircle2, ShieldCheck
 } from 'lucide-react';
 import { Hotel, RoomType, Language } from '../types';
@@ -34,23 +33,23 @@ export const RoomDetailPage: React.FC<RoomDetailPageProps> = ({ hotels, language
 
   if (!hotel || !room) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-5 py-20">
-        <div className="w-16 h-16 rounded-full bg-slate-50 border border-slate-100 text-slate-300 flex items-center justify-center">
-          <SearchX className="w-7 h-7" />
+      <div className="room-detail-page min-h-[60vh] flex flex-col items-center justify-center text-center gap-5 py-20">
+        <div className="w-16 h-16 rounded-full bg-navy-soft text-navy flex items-center justify-center">
+          <SearchX className="w-7 h-7" aria-hidden />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-slate-900 tracking-tight">
+          <h2 className="font-serif text-2xl text-navy tracking-tight">
             {isID ? 'Kamar tidak ditemukan' : 'Room not found'}
           </h2>
-          <p className="text-sm text-slate-400 mt-2 font-light leading-relaxed max-w-xs mx-auto">
+          <p className="text-[14px] text-slate-600 mt-2 leading-relaxed max-w-xs mx-auto">
             {isID ? 'Tautan ini tidak valid atau kamar sudah tidak tersedia.' : 'This link is invalid or the room is no longer available.'}
           </p>
         </div>
         <Link
           to="/explore"
-          className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-slate-900 hover:text-slate-600 transition-colors"
+          className="mt-1 inline-flex items-center gap-2 min-h-11 px-5 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" aria-hidden />
           {isID ? 'Kembali ke Explore' : 'Back to Explore'}
         </Link>
       </div>
@@ -63,27 +62,32 @@ export const RoomDetailPage: React.FC<RoomDetailPageProps> = ({ hotels, language
     return acc;
   }, {});
 
-  const prevImage = () => setActiveImage((i) => (i - 1 + gallery.length) % gallery.length);
-  const nextImage = () => setActiveImage((i) => (i + 1) % gallery.length);
+  const prevImage = useCallback(
+    () => setActiveImage((i) => (gallery.length ? (i - 1 + gallery.length) % gallery.length : 0)),
+    [gallery.length, setActiveImage]
+  );
+  const nextImage = useCallback(
+    () => setActiveImage((i) => (gallery.length ? (i + 1) % gallery.length : 0)),
+    [gallery.length, setActiveImage]
+  );
 
   return (
-    <div className="max-w-7xl mx-auto pb-20 px-2 sm:px-6 lg:px-8">
-      {/* Back Navigation */}
-      <nav className="py-4 sm:py-6 px-2 sm:px-0">
+    <div className="room-detail-page max-w-7xl mx-auto pb-20">
+      <nav className="py-4 sm:py-5">
         <button
+          type="button"
           onClick={() => navigate(-1)}
-          className="group inline-flex items-center gap-2 text-xs sm:text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors"
+          className="group inline-flex items-center gap-2 min-h-11 text-[13px] font-medium text-slate-600 hover:text-navy transition-colors duration-200 cursor-pointer"
         >
-          <span className="w-7 h-7 sm:w-8 sm:h-8 rounded-full border border-slate-200 group-hover:border-slate-300 group-hover:bg-slate-50 flex items-center justify-center transition-all">
-            <ArrowLeft className="w-3.5 h-3.5" />
+          <span className="w-11 h-11 rounded-full border border-navy-soft group-hover:bg-navy-soft flex items-center justify-center transition-colors duration-200">
+            <ArrowLeft className="w-4 h-4" aria-hidden />
           </span>
           {isID ? 'Kembali' : 'Back'}
         </button>
       </nav>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14">
-        {/* ===== LEFT: Content (8 cols) ===== */}
-        <div className="lg:col-span-8 space-y-8 sm:space-y-12">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
+        <div className="lg:col-span-8 space-y-8 sm:space-y-10">
           <RoomGallery
             gallery={gallery}
             roomName={room.name}
@@ -94,43 +98,52 @@ export const RoomDetailPage: React.FC<RoomDetailPageProps> = ({ hotels, language
             isID={isID}
           />
 
-          {/* Title & Meta */}
-          <div className="space-y-4 sm:space-y-5 border-b border-slate-100 pb-6 sm:pb-8">
-            <div className="flex items-start gap-3 flex-wrap">
-              <h1 className="text-2xl sm:text-4xl font-semibold text-slate-950 tracking-tight leading-tight">
-                {room.name}
-              </h1>
-            </div>
+          <div className="space-y-4 border-b border-navy-soft pb-7">
+            <p className="text-[12px] font-semibold tracking-[0.16em] uppercase text-gold">
+              {hotel.name}
+            </p>
+            <h1 className="font-serif text-3xl sm:text-4xl text-navy tracking-tight leading-[1.15]">
+              {room.name}
+            </h1>
 
-            <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-slate-500 font-light">
-              <span className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-xl">
-                <Maximize2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            {(hotel.location || hotel.city) && (
+              <p className="flex items-center gap-1.5 text-[14px] text-slate-600">
+                <MapPin className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
+                <span className="truncate">
+                  {[hotel.location, hotel.city].filter(Boolean).join(', ')}
+                </span>
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 bg-navy-soft px-3 py-1.5 rounded-full text-[12px] font-medium text-navy">
+                <Maximize2 className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                 {room.size}
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-xl">
-                <Bed className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 bg-navy-soft px-3 py-1.5 rounded-full text-[12px] font-medium text-navy">
+                <Bed className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                 {room.bedType}
               </span>
-              <span className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-xl">
-                <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 bg-navy-soft px-3 py-1.5 rounded-full text-[12px] font-medium text-navy">
+                <Users className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                 {room.maxOccupancy} {isID ? 'tamu' : 'guests'}
               </span>
               {room.capacityAdult !== undefined && (
-                <span className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-xl">
-                  <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="inline-flex items-center gap-1.5 bg-navy-soft px-3 py-1.5 rounded-full text-[12px] font-medium text-navy">
+                  <Users className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                   {room.capacityAdult} {isID ? 'dewasa' : 'adults'}
                 </span>
               )}
               {room.capacityChild !== undefined && room.capacityChild > 0 && (
-                <span className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2.5 py-1 rounded-xl">
-                  <Baby className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span className="inline-flex items-center gap-1.5 bg-navy-soft px-3 py-1.5 rounded-full text-[12px] font-medium text-navy">
+                  <Baby className="w-3.5 h-3.5 text-gold shrink-0" aria-hidden />
                   {room.capacityChild} {isID ? 'anak' : 'children'}
                 </span>
               )}
             </div>
 
             {room.description && (
-              <p className="text-xs sm:text-[15px] text-slate-500 font-light leading-relaxed sm:leading-[1.7] max-w-2xl pt-1">
+              <p className="text-[15px] text-slate-600 leading-relaxed max-w-2xl pt-1">
                 {room.description}
               </p>
             )}
@@ -146,13 +159,11 @@ export const RoomDetailPage: React.FC<RoomDetailPageProps> = ({ hotels, language
           />
         </div>
 
-        {/* ===== RIGHT: Sticky booking card (4 cols) ===== */}
         <div className="lg:col-span-4">
-          <div className="sticky top-24 sm:top-28 space-y-4">
-            <div className="p-4 sm:p-6 rounded-3xl bg-white border border-slate-100 shadow-[0_12px_48px_rgba(15,23,42,0.08)] space-y-4 sm:space-y-5">
-              {/* Price Header */}
+          <div className="sticky top-[5.25rem] sm:top-[6rem] space-y-4">
+            <div className="p-5 sm:p-6 rounded-3xl bg-white border border-navy-soft shadow-[0_12px_40px_rgba(30,58,138,0.08)] space-y-5">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gold">
                   {isID ? 'Harga per malam' : 'Price per night'}
                 </span>
                 {room.discountPercentage && (
@@ -162,72 +173,67 @@ export const RoomDetailPage: React.FC<RoomDetailPageProps> = ({ hotels, language
                 )}
               </div>
 
-              {/* Price Amount */}
-              <div className="flex flex-wrap items-baseline gap-1.5 sm:gap-2 min-w-0">
+              <div className="flex flex-wrap items-baseline gap-1.5 min-w-0">
                 {room.originalPrice && (
-                  <span className="text-xs sm:text-[13px] text-slate-400 line-through font-light mr-1">
+                  <span className="text-[13px] text-slate-400 line-through">
                     {formatCurrency(room.originalPrice)}
                   </span>
                 )}
-                <span className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-950 tracking-tight leading-none break-all">
+                <span className="text-3xl sm:text-4xl font-semibold text-navy tracking-tight leading-none">
                   {formatCurrency(room.pricePerNight)}
                 </span>
-                <span className="text-xs sm:text-[13px] text-slate-400 font-light">/ {isID ? 'malam' : 'night'}</span>
+                <span className="text-[13px] text-slate-500">/ {isID ? 'malam' : 'night'}</span>
               </div>
 
-              {/* Availability Badge */}
               {loading ? (
-                <span className="inline-flex items-center gap-1.5 w-32 h-8 px-3 py-1.5 rounded-full bg-slate-100 animate-pulse" />
+                <span className="inline-flex w-32 h-8 rounded-full bg-navy-soft animate-pulse" />
               ) : availableToday !== null && (
                 <span
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold ${
                     availableToday === 0
-                      ? 'bg-slate-50 text-slate-400 border border-slate-100'
+                      ? 'bg-navy-soft text-slate-500'
                       : availableToday <= 3
-                      ? 'bg-rose-50 text-rose-600 border border-rose-100'
-                      : 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                      ? 'bg-rose-50 text-rose-700'
+                      : 'bg-emerald-50 text-emerald-700'
                   }`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${availableToday === 0 ? 'bg-slate-300' : availableToday <= 3 ? 'bg-rose-400' : 'bg-emerald-500'}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${availableToday === 0 ? 'bg-slate-400' : availableToday <= 3 ? 'bg-rose-500' : 'bg-emerald-600'}`} />
                   {availableToday === 0
                     ? (isID ? 'Penuh hari ini' : 'Sold out today')
                     : `${availableToday} ${isID ? 'tersedia' : 'available'}`}
                 </span>
               )}
 
-              {/* CTA */}
-              <motion.button
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.98 }}
+              <button
+                type="button"
                 onClick={() => onBook(hotel, room)}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-[13px] font-bold shadow-lg shadow-amber-500/25 transition-all duration-200 flex items-center justify-center gap-2"
+                className="w-full min-h-12 py-3.5 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200 flex items-center justify-center gap-2 cursor-pointer"
               >
-                {isID ? 'Pesan Sekarang' : 'Book Now'}
-                <ArrowRight className="w-4 h-4" />
-              </motion.button>
+                {isID ? 'Pesan sekarang' : 'Book now'}
+                <ArrowRight className="w-4 h-4" aria-hidden />
+              </button>
 
-              <p className="text-center text-[11px] text-slate-400 font-light">
+              <p className="text-center text-[12px] text-slate-500">
                 {isID ? 'Pembayaran aman via Midtrans · Konfirmasi instan' : 'Secure payment via Midtrans · Instant confirmation'}
               </p>
             </div>
 
-            {/* Trust Signals */}
-            <div className="p-5 rounded-3xl bg-slate-50/70 border border-slate-100 space-y-3">
-              <span className="flex items-center gap-3 text-[12px] text-slate-500 font-light">
-                <span className="w-6 h-6 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+            <div className="p-5 rounded-3xl bg-navy-soft/50 border border-navy-soft space-y-3">
+              <span className="flex items-center gap-3 text-[13px] text-slate-600">
+                <span className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-gold" aria-hidden />
                 </span>
                 {isID ? 'Konfirmasi instan' : 'Instant confirmation'}
               </span>
-              <span className="flex items-center gap-3 text-[12px] text-slate-500 font-light">
-                <span className="w-6 h-6 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="flex items-center gap-3 text-[13px] text-slate-600">
+                <span className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-3.5 h-3.5 text-gold" aria-hidden />
                 </span>
                 {isID ? 'Pembayaran aman' : 'Secure payment'}
               </span>
-              <span className="flex items-center gap-3 text-[12px] text-slate-500 font-light">
-                <span className="w-6 h-6 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
-                  <CalendarClock className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="flex items-center gap-3 text-[13px] text-slate-600">
+                <span className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0">
+                  <CalendarClock className="w-3.5 h-3.5 text-gold" aria-hidden />
                 </span>
                 {isID ? 'Ketersediaan real-time' : 'Real-time availability'}
               </span>

@@ -15,6 +15,8 @@ export function mapNotificationToUI(n: NotificationResponse): Notification {
     time: relativeTime(n.sentAt || n.createdAt),
     unread: !n.isRead,
     type,
+    notificationType: n.notificationType,
+    referenceType: n.referenceType,
   };
 }
 

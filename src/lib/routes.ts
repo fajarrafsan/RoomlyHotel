@@ -27,6 +27,7 @@ export function viewToPath(view: DashboardView): string {
 export const ADMIN_PATHS = {
   dashboard: '/admin',
   checkIn: '/staff/check-in',
+  housekeeping: '/staff/housekeeping',
   invoices: '/admin/invoices',
   payments: '/admin/payments',
   reviews: '/admin/reviews',
@@ -35,9 +36,30 @@ export const ADMIN_PATHS = {
   notifications: '/admin/notifications',
 } as const;
 
+export const OPERATIONS_ROLES = ['ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING', 'MAINTENANCE'] as const;
+
+export function isOperationsRole(role?: string): boolean {
+  return !!role && OPERATIONS_ROLES.includes(role as (typeof OPERATIONS_ROLES)[number]);
+}
+
+/** Send every signed-in role to the first screen it can actually operate. */
+export function roleLandingPath(role?: string): string {
+  switch (role) {
+    case 'ADMIN':
+      return ADMIN_PATHS.dashboard;
+    case 'RECEPTIONIST':
+      return ADMIN_PATHS.checkIn;
+    case 'HOUSEKEEPING':
+    case 'MAINTENANCE':
+      return ADMIN_PATHS.housekeeping;
+    default:
+      return VIEW_PATHS.overview;
+  }
+}
+
 /**
  * Routes that only make sense for a signed-in customer (browsing, wishlist,
- * personal bookings). An ADMIN session is redirected off these onto the console.
+ * personal bookings). Operational staff are redirected to their role workspace.
  */
 export const CUSTOMER_ONLY_PATHS = [
   VIEW_PATHS.overview,
@@ -46,3 +68,9 @@ export const CUSTOMER_ONLY_PATHS = [
   VIEW_PATHS.wishlist,
   VIEW_PATHS.analytics,
 ];
+
+export function isCustomerOnlyPath(pathname: string): boolean {
+  return CUSTOMER_ONLY_PATHS.includes(pathname)
+    || pathname.startsWith('/hotel/')
+    || pathname.startsWith('/booking/');
+}

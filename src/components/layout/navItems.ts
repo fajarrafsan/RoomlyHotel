@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Compass, CalendarDays, Heart, BarChart3,
-  UserCheck, FileText, CreditCard, Star, Building2, Database, Bell,
+  UserCheck, FileText, CreditCard, Star, Building2, Database, Bell, ClipboardCheck,
   type LucideIcon
 } from 'lucide-react';
 import { ADMIN_PATHS, VIEW_PATHS } from '../../lib/routes';
@@ -17,7 +17,7 @@ export interface NavItemsOptions {
   isID: boolean;
   activeBookingsCount: number;
   wishlistCount: number;
-  /** Auth role from Roomly's JWT. ADMIN gets the console nav, everyone else the guest nav. */
+  /** Auth role from Roomly's JWT. Staff get only the operations they are allowed to use. */
   role?: string;
 }
 
@@ -29,12 +29,36 @@ function getAdminNavItems(isID: boolean): HeaderNavItem[] {
   return [
     { path: ADMIN_PATHS.dashboard, label: isID ? 'Dasbor' : 'Dashboard', icon: LayoutDashboard, badge: null },
     { path: ADMIN_PATHS.checkIn, label: 'Check-In', icon: UserCheck, badge: null },
+    { path: ADMIN_PATHS.housekeeping, label: 'Housekeeping', icon: ClipboardCheck, badge: null },
     { path: ADMIN_PATHS.invoices, label: isID ? 'Invoice' : 'Invoices', icon: FileText, badge: null },
     { path: ADMIN_PATHS.payments, label: isID ? 'Pembayaran' : 'Payments', icon: CreditCard, badge: null },
     { path: ADMIN_PATHS.reviews, label: isID ? 'Ulasan' : 'Reviews', icon: Star, badge: null },
     { path: ADMIN_PATHS.hotels, label: isID ? 'Properti' : 'Properties', icon: Building2, badge: null },
     { path: ADMIN_PATHS.masterData, label: isID ? 'Master' : 'Master', icon: Database, badge: null },
     { path: ADMIN_PATHS.notifications, label: isID ? 'Notifikasi' : 'Notifications', icon: Bell, badge: null },
+  ];
+}
+
+function getReceptionistNavItems(isID: boolean): HeaderNavItem[] {
+  return [
+    { path: ADMIN_PATHS.checkIn, label: 'Check-In', icon: UserCheck, badge: null },
+    {
+      path: ADMIN_PATHS.housekeeping,
+      label: isID ? 'Tugas Kamar' : 'Room Tasks',
+      icon: ClipboardCheck,
+      badge: null,
+    },
+  ];
+}
+
+function getRoomOperationsNavItems(isID: boolean): HeaderNavItem[] {
+  return [
+    {
+      path: ADMIN_PATHS.housekeeping,
+      label: isID ? 'Tugas Kamar' : 'Room Tasks',
+      icon: ClipboardCheck,
+      badge: null,
+    },
   ];
 }
 
@@ -51,7 +75,7 @@ function getGuestNavItems(
       label: isID ? 'Pesanan' : 'Bookings',
       icon: CalendarDays,
       badge: activeBookingsCount > 0 ? activeBookingsCount : null,
-      badgeColor: 'bg-amber-500 text-white'
+      badgeColor: 'bg-gold text-white'
     },
     {
       path: VIEW_PATHS.wishlist,
@@ -70,7 +94,15 @@ function getGuestNavItems(
 }
 
 export function getNavItems({ isID, activeBookingsCount, wishlistCount, role }: NavItemsOptions): HeaderNavItem[] {
-  return role === 'ADMIN'
-    ? getAdminNavItems(isID)
-    : getGuestNavItems(isID, activeBookingsCount, wishlistCount);
+  switch (role) {
+    case 'ADMIN':
+      return getAdminNavItems(isID);
+    case 'RECEPTIONIST':
+      return getReceptionistNavItems(isID);
+    case 'HOUSEKEEPING':
+    case 'MAINTENANCE':
+      return getRoomOperationsNavItems(isID);
+    default:
+      return getGuestNavItems(isID, activeBookingsCount, wishlistCount);
+  }
 }

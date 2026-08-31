@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { authApi } from '../api/auth';
-import { OtpRequiredError } from '../lib/http';
+import { AUTH_SESSION_EXPIRED_EVENT, OtpRequiredError } from '../lib/http';
 import { AuthUser } from '../types';
 
 interface AuthContextValue {
@@ -22,6 +22,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    const clearExpiredSession = () => {
+      localStorage.removeItem(SESSION_FLAG);
+      setUser(null);
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredSession);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, clearExpiredSession);
+  }, []);
+
+  useEffect(() => {
     const hasSession = localStorage.getItem(SESSION_FLAG) === 'true';
     if (!hasSession) {
       setUser(null);
@@ -32,12 +41,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authApi
       .me()
       .then((profile) => {
-        if (profile) {
-          setUser({ userId: profile.id, fullName: profile.fullName, email: profile.email, role: profile.role });
-        } else {
-          localStorage.removeItem(SESSION_FLAG);
-          setUser(null);
-        }
+        setUser({ userId: profile.userId, fullName: profile.fullName, email: profile.email, role: profile.role, hotelId: profile.hotelId });
       })
       .catch(() => {
         localStorage.removeItem(SESSION_FLAG);
@@ -51,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (result.otpRequired) {
       throw new OtpRequiredError(email);
     }
-    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role };
+    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role, hotelId: result.user.hotelId };
     localStorage.setItem(SESSION_FLAG, 'true');
     setUser(loggedUser);
     return loggedUser;
@@ -67,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (result.otpRequired) {
       throw new OtpRequiredError(result.user.email);
     }
-    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role };
+    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role, hotelId: result.user.hotelId };
     localStorage.setItem(SESSION_FLAG, 'true');
     setUser(loggedUser);
     return loggedUser;
@@ -75,7 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyAdminOtp = useCallback(async (email: string, otp: string) => {
     const result = await authApi.verifyAdminOtp(email, otp);
-    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role };
+    const loggedUser: AuthUser = { userId: result.user.userId, fullName: result.user.fullName, email: result.user.email, role: result.user.role, hotelId: result.user.hotelId };
     localStorage.setItem(SESSION_FLAG, 'true');
     setUser(loggedUser);
     return loggedUser;

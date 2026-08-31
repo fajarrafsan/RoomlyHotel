@@ -1,16 +1,24 @@
 import { buildQuery, http, SERVICE } from '../lib/http';
-import { NotificationPreferenceResponse, NotificationResponse, PagedResponse, UpdateNotificationPreferenceRequest } from '../types/api';
+import {
+  NotificationEventType,
+  NotificationPreferenceResponse,
+  NotificationResponse,
+  SpringPage,
+  UnreadCountResponse,
+  UpdateNotificationPreferenceRequest,
+} from '../types/api';
 
 const BASE = `${SERVICE.notification}/api/notifications`;
 
 export const notificationApi = {
-  list: (page = 0, size = 20) =>
-    http
-      .get<PagedResponse<NotificationResponse>>(`${BASE}${buildQuery({ page, size })}`)
-      .catch(() => ({ content: [], totalElements: 0, totalPages: 0, number: 0, size })),
-  unreadCount: () => http.get<number>(`${BASE}/unread-count`).catch(() => 0),
-  markRead: (id: number) => http.patch<void>(`${BASE}/${id}/read`),
-  markAllRead: () => http.patch<void>(`${BASE}/read-all`),
+  list: (page = 0, size = 20, type?: NotificationEventType) =>
+    http.get<SpringPage<NotificationResponse>>(`${BASE}${buildQuery({ page, size, type })}`),
+  listUnread: (page = 0, size = 20) =>
+    http.get<SpringPage<NotificationResponse>>(`${BASE}/unread${buildQuery({ page, size })}`),
+  getById: (id: number) => http.get<NotificationResponse>(`${BASE}/${id}`),
+  unreadCount: async () => (await http.get<UnreadCountResponse>(`${BASE}/unread-count`)).unreadCount,
+  markRead: (id: number) => http.patch<NotificationResponse>(`${BASE}/${id}/read`),
+  markAllRead: () => http.patch<UnreadCountResponse>(`${BASE}/read-all`),
 };
 
 export const notificationPreferenceApi = {

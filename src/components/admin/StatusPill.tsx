@@ -20,6 +20,7 @@ const TONE: Record<string, string> = {
   PENDING: 'bg-amber-50 text-amber-700 border-amber-100',
   WAITING_PAYMENT: 'bg-amber-50 text-amber-700 border-amber-100',
   PROCESSING: 'bg-amber-50 text-amber-700 border-amber-100',
+  IN_PROGRESS: 'bg-sky-50 text-sky-700 border-sky-100',
   DRAFT: 'bg-slate-50 text-slate-500 border-slate-200',
 
   // terminal / negative
