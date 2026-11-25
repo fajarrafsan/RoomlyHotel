@@ -1,264 +1,187 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Bell, Send, Loader2, CheckCircle2 } from 'lucide-react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { ArrowRight, Bell, FileText, History, Search, Send } from 'lucide-react';
 import { adminApi } from '../api/admin';
-import { ApiError } from '../lib/http';
-import { Language } from '../types';
-import {
-  NotificationEventType, NotificationReferenceType, NotificationResponse
-} from '../types/api/notification';
 import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
-import { AdminPageShell, AdminTableCard } from '../components/admin/AdminPageShell';
+import { AdminNotificationComposer } from '../components/admin/AdminNotificationComposer';
 import { NotificationTemplatesCard } from '../components/admin/NotificationTemplatesCard';
+import { OperationsDialog } from '../components/admin/OperationsDialog';
+import {
+  OperationsEmpty, OperationsList, OperationsNotice, OperationsPage, OperationsPager, OperationsTabs,
+  operationButton, operationDate, operationField, operationSecondary,
+} from '../components/admin/OperationsPage';
 import { StatusPill } from '../components/admin/StatusPill';
+import { useAuth } from '../context/AuthContext';
+import { useOperationsQuery } from '../hooks/useOperationsQuery';
+import { parseNotificationMessage } from '../lib/notificationFormatter';
+import { notificationChannelLabel, notificationEventLabel, notificationEventTypes } from '../lib/notificationLabels';
+import type { Language } from '../types';
+import type { NotificationChannel, NotificationEventType, NotificationResponse } from '../types/api/notification';
 
-const EVENT_TYPES: NotificationEventType[] = [
-  'BOOKING_CREATED', 'BOOKING_CONFIRMED', 'BOOKING_CANCELLED', 'BOOKING_EXPIRED', 'BOOKING_NO_SHOW',
-  'PAYMENT_CREATED', 'PAYMENT_SUCCESS', 'PAYMENT_FAILED', 'PAYMENT_EXPIRED', 'PAYMENT_CANCELLED',
-  'REFUND_REQUESTED', 'REFUND_SUCCESS', 'REFUND_FAILED',
-  'INVOICE_ISSUED', 'INVOICE_VOIDED', 'INVOICE_REFUNDED',
-  'CHECKIN_REMINDER', 'CHECKIN_SUCCESS', 'CHECKOUT_REMINDER', 'CHECKOUT_SUCCESS',
-  'HOUSEKEEPING_TASK_CREATED', 'HOUSEKEEPING_TASK_STARTED', 'HOUSEKEEPING_TASK_COMPLETED', 'ROOM_READY',
-  'REVIEW_CREATED', 'REVIEW_HIDDEN', 'REVIEW_DELETED',
-];
-const REFERENCE_TYPES: NotificationReferenceType[] = [
-  'BOOKING', 'PAYMENT', 'REFUND', 'INVOICE', 'HOUSEKEEPING', 'ROOM', 'REVIEW',
-];
+const deliveryLabels: Record<string, [string, string]> = {
+  PENDING: ['Menunggu', 'Pending'], SENT: ['Terkirim', 'Sent'], FAILED: ['Gagal', 'Failed'],
+  READ: ['Dibaca', 'Read'], RETRYING: ['Dicoba ulang', 'Retrying'],
+};
+const emptyFilters = { userId: undefined as number | undefined, channel: '' as NotificationChannel | '', type: '' as NotificationEventType | '' };
+const channels: NotificationChannel[] = ['IN_APP', 'EMAIL'];
+type View = 'history' | 'templates';
 
-const INPUT = 'w-full p-2.5 rounded-xl border border-slate-200 text-[13px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors';
-const LABEL = 'text-[11px] font-semibold text-slate-500 block mb-1.5';
-
-export const AdminNotificationsPage: React.FC<{ language: Language; onOpenAuth?: () => void }> = ({
-  language,
-  onOpenAuth,
-}) => {
+export function AdminNotificationsPage({ language, onOpenAuth }: { language: Language; onOpenAuth?: () => void }) {
   const isID = language === 'ID';
+  const { user, isLoading: authLoading } = useAuth();
+  const allowed = user?.role === 'ADMIN';
+  const [view, setView] = useState<View>('history');
+  const [page, setPage] = useState(0);
+  const [filters, setFilters] = useState(emptyFilters);
+  const [userSearch, setUserSearch] = useState('');
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [composer, setComposer] = useState(false);
+  const [selected, setSelected] = useState<NotificationResponse | null>(null);
+  const [accepted, setAccepted] = useState(false);
 
-  const [sent, setSent] = useState<NotificationResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const readHistory = useCallback(() => adminApi.searchNotifications(page, 15, {
+    userId: filters.userId, channel: filters.channel || undefined, type: filters.type || undefined,
+  }), [page, filters, user?.userId]);
+  const readTemplates = useCallback(() => adminApi.listNotificationTemplates(), [user?.userId]);
+  const history = useOperationsQuery(readHistory, allowed && view === 'history', isID ? 'Gagal memuat riwayat notifikasi.' : 'Could not load notification history.');
+  const templates = useOperationsQuery(readTemplates, allowed && view === 'templates', isID ? 'Gagal memuat template.' : 'Could not load templates.');
+  const active = view === 'history' ? history : templates;
+  const totalPages = history.data?.totalPages;
 
-  const [form, setForm] = useState({
-    userIds: '',
-    eventType: 'BOOKING_CONFIRMED' as NotificationEventType,
-    referenceType: '' as NotificationReferenceType | '',
-    referenceId: '',
-    title: '',
-    message: '',
-  });
+  useEffect(() => {
+    if (totalPages !== undefined && page > 0 && page >= totalPages) setPage(Math.max(0, totalPages - 1));
+  }, [page, totalPages]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await adminApi.searchNotifications(0, 50);
-      setSent(page.content);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat notifikasi.' : 'Failed to load notifications.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [isID]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    // The backend takes a list of numeric user IDs; accept a comma/space list.
-    const userIds = form.userIds
-      .split(/[,\s]+/)
-      .map((s) => Number(s.trim()))
-      .filter((n) => Number.isFinite(n) && n > 0);
-
-    if (userIds.length === 0) {
-      setError(isID ? 'Masukkan minimal satu User ID.' : 'Enter at least one user ID.');
+  const filterByUser = (event: FormEvent) => {
+    event.preventDefault();
+    const raw = userSearch.trim();
+    const userId = raw ? Number(raw) : undefined;
+    if (userId !== undefined && (!/^\d+$/.test(raw) || !Number.isSafeInteger(userId) || userId <= 0)) {
+      setFilterError(isID ? 'Masukkan ID pengguna berupa bilangan bulat positif.' : 'Enter a positive whole-number user ID.');
       return;
     }
-
-    const title = form.title.trim();
-    const message = form.message.trim();
-    if ((title && !message) || (!title && message)) {
-      setError(
-        isID
-          ? 'Judul dan pesan harus diisi bersamaan, atau kosongkan keduanya untuk memakai template.'
-          : 'Title and message must both be filled in, or leave both blank to use the template.'
-      );
-      setSuccess(false);
-      return;
-    }
-
-    setSending(true);
-    setError(null);
-    setSuccess(false);
-    try {
-      await adminApi.sendNotification({
-        userIds,
-        eventType: form.eventType,
-        referenceType: form.referenceType || undefined,
-        referenceId: form.referenceId === '' ? undefined : Number(form.referenceId),
-        title: title || undefined,
-        message: message || undefined,
-      });
-      setSuccess(true);
-      setForm({ ...form, userIds: '', title: '', message: '', referenceId: '' });
-      // Dispatch is asynchronous on the backend, so reload rather than assume.
-      load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal mengirim notifikasi.' : 'Failed to send notification.'));
-    } finally {
-      setSending(false);
+    setFilterError(null);
+    setUserSearch(raw);
+    if (userId !== filters.userId) {
+      setPage(0);
+      setFilters({ ...filters, userId });
     }
   };
 
-  return (
-    <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>
-      <AdminPageShell
-        icon={Bell}
-        title={isID ? 'Notifikasi' : 'Notifications'}
-        subtitle={
-          isID
-            ? 'Kirim notifikasi manual ke pengguna tertentu, dan telusuri seluruh notifikasi yang pernah dikirim sistem.'
-            : 'Dispatch a notification manually to specific users, and browse everything the system has sent.'
-        }
-        endpoint="POST /api/admin/notifications/send"
-        isID={isID}
-        loading={loading}
-        error={error}
-        onRefresh={load}
-      >
-        <form onSubmit={handleSend} className="bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <label>
-              <span className={LABEL}>
-                User ID <span className="text-rose-500">*</span>
-              </span>
-              <input
-                value={form.userIds}
-                onChange={(e) => setForm({ ...form, userIds: e.target.value })}
-                placeholder={isID ? 'mis. 1, 2, 5' : 'e.g. 1, 2, 5'}
-                className={INPUT}
-              />
-              <span className="text-[10px] text-slate-400 font-light block mt-1">
-                {isID ? 'Pisahkan dengan koma atau spasi.' : 'Separate with commas or spaces.'}
-              </span>
-            </label>
-            <label>
-              <span className={LABEL}>{isID ? 'Jenis Event' : 'Event Type'}</span>
-              <select
-                value={form.eventType}
-                onChange={(e) => setForm({ ...form, eventType: e.target.value as NotificationEventType })}
-                className={`${INPUT} cursor-pointer`}
-              >
-                {EVENT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-              </select>
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <label>
-                <span className={LABEL}>{isID ? 'Referensi' : 'Reference'}</span>
-                <select
-                  value={form.referenceType}
-                  onChange={(e) => setForm({ ...form, referenceType: e.target.value as NotificationReferenceType | '' })}
-                  className={`${INPUT} cursor-pointer`}
-                >
-                  <option value="">—</option>
-                  {REFERENCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </label>
-              <label>
-                <span className={LABEL}>Ref ID</span>
-                <input
-                  type="number" min={1} value={form.referenceId}
-                  onChange={(e) => setForm({ ...form, referenceId: e.target.value })}
-                  className={INPUT}
-                />
-              </label>
-            </div>
-          </div>
+  if (!allowed) {
+    if (authLoading) return <OperationsEmpty loading isID={isID} empty="" />;
+    return <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>{null}</AdminAccessGuard>;
+  }
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <label>
-              <span className={LABEL}>{isID ? 'Judul' : 'Title'}</span>
-              <input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder={isID ? 'Kosongkan untuk pakai template' : 'Leave blank to use the template'}
-                className={INPUT}
-              />
-            </label>
-            <label className="sm:col-span-2">
-              <span className={LABEL}>{isID ? 'Pesan' : 'Message'}</span>
-              <input
-                value={form.message}
-                onChange={(e) => setForm({ ...form, message: e.target.value })}
-                placeholder={isID ? 'Kosongkan untuk pakai template' : 'Leave blank to use the template'}
-                className={INPUT}
-              />
-            </label>
-          </div>
-
-          <div className="flex items-center justify-between gap-3 pt-1">
-            {success ? (
-              <p className="text-[12px] text-emerald-600 font-medium flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {isID ? 'Notifikasi dikirim (diproses asinkron).' : 'Notification dispatched (processed asynchronously).'}
-              </p>
-            ) : <span />}
-            <button
-              type="submit" disabled={sending}
-              className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 shrink-0"
-            >
-              {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-              {isID ? 'Kirim Notifikasi' : 'Send Notification'}
-            </button>
-          </div>
-        </form>
-
-        <NotificationTemplatesCard isID={isID} eventTypes={EVENT_TYPES} />
-
-        <AdminTableCard
-          isID={isID}
-          loading={loading}
-          isEmpty={sent.length === 0}
-          emptyLabel={isID ? 'Belum ada notifikasi terkirim.' : 'No notifications sent yet.'}
-        >
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">{isID ? 'Judul' : 'Title'}</th>
-                <th className="px-4 py-3">{isID ? 'Jenis' : 'Type'}</th>
-                <th className="px-4 py-3">Channel</th>
-                <th className="px-4 py-3">{isID ? 'Dibaca' : 'Read'}</th>
-                <th className="px-4 py-3">{isID ? 'Pengiriman' : 'Delivery'}</th>
-                <th className="px-4 py-3">{isID ? 'Waktu' : 'Sent'}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 text-slate-700">
-              {sent.map((n) => (
-                <tr key={n.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500">#{n.userId}</td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{n.title}</p>
-                    <p className="text-[11px] text-slate-500 font-light max-w-[280px] truncate">{n.message}</p>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-[11px]">{n.notificationType?.replace(/_/g, ' ')}</td>
-                  <td className="px-4 py-3 text-slate-500 text-[11px]">{n.channel}</td>
-                  <td className="px-4 py-3">
-                    {n.isRead
-                      ? <span className="text-[10px] font-semibold text-slate-400">{isID ? 'Dibaca' : 'Read'}</span>
-                      : <span className="text-[10px] font-bold text-amber-600">{isID ? 'Belum' : 'Unread'}</span>}
-                  </td>
-                  <td className="px-4 py-3"><StatusPill status={n.deliveryStatus} /></td>
-                  <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                    {(n.sentAt || n.createdAt)?.replace('T', ' ').slice(0, 16)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </AdminTableCard>
-      </AdminPageShell>
-    </AdminAccessGuard>
+  const filtered = Boolean(filters.userId || filters.channel || filters.type);
+  const eventOptions = notificationEventTypes.map(value => ({ value, label: notificationEventLabel(value, isID) }));
+  const deliveryBadge = (row: NotificationResponse) => (
+    <StatusPill status={row.deliveryStatus} label={deliveryLabels[row.deliveryStatus]?.[isID ? 0 : 1]} />
   );
-};
+  const detail = selected ? parseNotificationMessage(selected.message) : null;
+
+  return (
+    <OperationsPage icon={Bell} title={isID ? 'Notifikasi' : 'Notifications'}
+      description={isID ? 'Kirim notifikasi, pantau pengirimannya, dan kelola template pesan.' : 'Send notifications, track delivery, and manage message templates.'}
+      isID={isID} loading={active.loading} blocked={composer || !!selected} onRefresh={() => void active.refresh()}
+      action={view === 'history' && <button type="button" onClick={() => { setAccepted(false); setComposer(true); }}
+        className={operationButton + ' bg-gold-soft text-[#162951] hover:bg-white'}><Send className="size-4" aria-hidden />{isID ? 'Kirim notifikasi' : 'Send notification'}</button>}>
+      <OperationsTabs<View> label={isID ? 'Bagian notifikasi' : 'Notification sections'} value={view} items={[
+        { value: 'history', label: isID ? 'Riwayat' : 'History', icon: History },
+        { value: 'templates', label: isID ? 'Template pesan' : 'Message templates', icon: FileText },
+      ]} onChange={setView} />
+      {view === 'templates' ? <NotificationTemplatesCard language={language} {...templates} /> : <>
+        {history.error && <OperationsNotice>{history.error}</OperationsNotice>}
+        {accepted && <OperationsNotice success>{isID ? 'Permintaan pengiriman diterima.' : 'Notification request accepted.'}</OperationsNotice>}
+        <OperationsList title={isID ? 'Riwayat pengiriman' : 'Delivery history'} isID={isID} rows={history.data?.content ?? []} loading={history.loading}
+          description={history.data && !history.loading ? `${history.data.totalElements.toLocaleString(isID ? 'id-ID' : 'en-US')} ${isID ? 'notifikasi ditemukan' : 'notifications found'}` : undefined}
+          empty={history.error ? (isID ? 'Riwayat pengiriman belum tersedia.' : 'Delivery history is unavailable.')
+            : filtered ? (isID ? 'Tidak ada notifikasi yang cocok.' : 'No matching notifications.')
+              : (isID ? 'Belum ada riwayat pengiriman.' : 'There is no delivery history yet.')}
+          controls={<div className="w-full min-w-0 space-y-2">
+            <form onSubmit={filterByUser} className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(175px,auto)_minmax(140px,auto)]">
+              <div className="flex min-w-0 gap-2 sm:col-span-2 lg:col-span-1">
+                <label className="relative min-w-0 flex-1">
+                  <span className="sr-only">{isID ? 'Cari ID pengguna' : 'Search by user ID'}</span>
+                  <Search className="pointer-events-none absolute top-3.5 left-3 size-4 text-slate-500" aria-hidden />
+                  <input type="search" inputMode="numeric" value={userSearch} onChange={event => { setUserSearch(event.target.value); setFilterError(null); }}
+                    className={operationField + ' pl-9'} placeholder={isID ? 'Cari ID pengguna…' : 'Search user ID…'} />
+                </label>
+                <button type="submit" className={operationSecondary}>{isID ? 'Cari' : 'Search'}</button>
+              </div>
+              <select aria-label={isID ? 'Filter jenis notifikasi' : 'Filter notification type'} value={filters.type}
+                onChange={event => { setPage(0); setFilters({ ...filters, type: event.target.value as NotificationEventType | '' }); }} className={operationField + ' bg-white'}>
+                <option value="">{isID ? 'Semua jenis' : 'All types'}</option>
+                {eventOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <select aria-label={isID ? 'Filter kanal notifikasi' : 'Filter notification channel'} value={filters.channel}
+                onChange={event => { setPage(0); setFilters({ ...filters, channel: event.target.value as NotificationChannel | '' }); }} className={operationField + ' bg-white'}>
+                <option value="">{isID ? 'Semua kanal' : 'All channels'}</option>
+                {channels.map(channel => <option key={channel} value={channel}>{notificationChannelLabel(channel, isID)}</option>)}
+              </select>
+            </form>
+            {filterError && <OperationsNotice>{filterError}</OperationsNotice>}
+            {filtered && <button type="button" onClick={() => { setPage(0); setUserSearch(''); setFilterError(null); setFilters(emptyFilters); }}
+              className={operationSecondary}>{isID ? 'Atur ulang filter' : 'Reset filters'}</button>}
+          </div>}
+          primary={{ label: isID ? 'Notifikasi' : 'Notification', render: row => (
+            <div className="max-w-[32rem]">
+              <p className="font-semibold text-navy-dark [overflow-wrap:anywhere]">{row.title}</p>
+              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 [overflow-wrap:anywhere]">{parseNotificationMessage(row.message).cleanPreview}</p>
+            </div>
+          ) }}
+          columns={[
+            { label: isID ? 'Penerima' : 'Recipient', render: row => `#${row.userId}` },
+            { label: isID ? 'Jenis' : 'Type', render: row => notificationEventLabel(row.notificationType, isID) },
+            { label: isID ? 'Kanal' : 'Channel', render: row => notificationChannelLabel(row.channel, isID) },
+            { label: isID ? 'Waktu' : 'Time', render: row => operationDate(row.sentAt || row.createdAt, language) },
+          ]}
+          status={deliveryBadge}
+          actions={row => <button type="button" onClick={() => setSelected(row)} aria-label={`${isID ? 'Lihat detail' : 'View details'} ${row.title}`}
+            className={operationSecondary}>{isID ? 'Lihat detail' : 'View details'}<ArrowRight className="size-4" aria-hidden /></button>}
+          footer={(page > 0 || (totalPages ?? 0) > 1) && <OperationsPager page={page} totalPages={totalPages ?? 0} isID={isID} disabled={history.loading} onChange={setPage} />}
+        />
+      </>}
+
+      {composer && <AdminNotificationComposer isID={isID} onClose={() => setComposer(false)} onAccepted={() => {
+        setComposer(false);
+        setAccepted(true);
+        if (page > 0) setPage(0);
+        else void history.refresh();
+      }} />}
+
+      {selected && detail && <OperationsDialog title={isID ? 'Detail pengiriman' : 'Delivery details'}
+        description={notificationChannelLabel(selected.channel, isID)} isID={isID} onClose={() => setSelected(null)}>
+        <div className="space-y-4">
+          <div>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-lg font-semibold text-navy-dark [overflow-wrap:anywhere]">{selected.title}</h3>
+              {deliveryBadge(selected)}
+            </div>
+            <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">{detail.cleanPreview || '—'}</p>
+          </div>
+          <dl className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+            {[
+              [isID ? 'ID pengguna' : 'User ID', `#${selected.userId}`],
+              [isID ? 'Jenis' : 'Type', notificationEventLabel(selected.notificationType, isID)],
+              [isID ? 'Dibuat' : 'Created', operationDate(selected.createdAt, language)],
+              [isID ? 'Dikirim' : 'Sent', operationDate(selected.sentAt, language)],
+              ...(selected.channel === 'IN_APP' || selected.isRead ? [[isID ? 'Status baca' : 'Read status',
+                selected.isRead ? (selected.readAt ? operationDate(selected.readAt, language) : (isID ? 'Dibaca' : 'Read'))
+                  : (isID ? 'Belum dibaca' : 'Unread')]] : []),
+              ...(selected.referenceType || selected.referenceId != null ? [[isID ? 'Referensi' : 'Reference',
+                [selected.referenceType?.replace(/_/g, ' '), selected.referenceId != null ? `#${selected.referenceId}` : null].filter(Boolean).join(' · ')]] : []),
+              ...(detail.invoiceNumber ? [['Invoice', detail.invoiceNumber]] : []),
+              ...(detail.bookingCode ? [[isID ? 'Kode reservasi' : 'Booking code', detail.bookingCode]] : []),
+              ...(detail.totalPaid ? [[isID ? 'Total dibayar' : 'Total paid', detail.totalPaid]] : []),
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-xs text-slate-600">{label}</dt>
+                <dd className="mt-1 text-sm font-semibold text-navy-dark [overflow-wrap:anywhere]">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </OperationsDialog>}
+    </OperationsPage>
+  );
+}

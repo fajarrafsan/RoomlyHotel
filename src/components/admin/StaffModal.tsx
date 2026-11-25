@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { X, UserPlus, Shield, Mail, Lock, User, Loader2, AlertCircle, Building2 } from 'lucide-react';
 import { Role } from '../../types/api/auth';
 import { CreateStaffRequestDto } from '../../api/admin';
@@ -57,10 +58,44 @@ export const StaffModal: React.FC<StaffModalProps> = ({
   const [hotelId, setHotelId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
+  const reduceMotion = useReducedMotion();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
 
   const requiresHotelId = role !== 'ADMIN';
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    panelRef.current?.focus({ preventScroll: true });
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !loadingRef.current) closeRef.current();
+      if (event.key !== 'Tab' || !panelRef.current) return;
+      const controls = [...panelRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === panelRef.current)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKey);
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,19 +133,23 @@ export const StaffModal: React.FC<StaffModalProps> = ({
     }
   };
 
-  return (
-    <AnimatePresence>
+  return createPortal(
+    <AnimatePresence>{isOpen && (
       <motion.div
-        initial={{ opacity: 0 }}
+        initial={reduceMotion ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
+        transition={{ duration: reduceMotion ? 0 : 0.16 }}
+        className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
       >
         <motion.div
-          initial={{ opacity: 0, y: 16, scale: 0.98 }}
+          ref={panelRef}
+          role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+          initial={reduceMotion ? false : { opacity: 0, y: 16, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.98 }}
-          className="bg-white rounded-2xl max-w-md w-full max-h-[92vh] shadow-2xl border border-slate-100 overflow-hidden relative my-auto flex flex-col"
+          exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
+          className="bg-white rounded-2xl max-w-md w-full max-h-[92vh] shadow-2xl border border-slate-100 overflow-hidden relative my-auto flex flex-col outline-none"
         >
           {/* Header */}
           <div className="px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
@@ -119,7 +158,7 @@ export const StaffModal: React.FC<StaffModalProps> = ({
                 <UserPlus className="w-4 h-4" />
               </span>
               <div>
-                <h3 className="font-semibold text-sm sm:text-base text-slate-900 leading-tight">
+                <h3 id={titleId} className="font-semibold text-sm sm:text-base text-slate-900 leading-tight">
                   {isID ? 'Tambah Staf Baru' : 'Add Staff Member'}
                 </h3>
                 <p className="text-[10px] sm:text-[11px] text-slate-400 font-light mt-0.5">
@@ -282,6 +321,7 @@ export const StaffModal: React.FC<StaffModalProps> = ({
           </form>
         </motion.div>
       </motion.div>
-    </AnimatePresence>
+    )}</AnimatePresence>,
+    document.body,
   );
 };

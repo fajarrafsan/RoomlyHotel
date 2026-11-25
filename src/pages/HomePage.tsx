@@ -1,12 +1,13 @@
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
+import { BedDouble, Building2, Compass, MapPin } from 'lucide-react';
 import { Booking, Hotel, Language, DashboardView } from '../types';
 import { HeroSection } from '../components/home/HeroSection';
 import { ActiveBookingBanner } from '../components/home/ActiveBookingBanner';
 import { PopularDestinations } from '../components/home/PopularDestinations';
 import { RecommendedHotels } from '../components/hotels/RecommendedHotels';
 import { WhyChooseUsSection } from '../components/home/WhyChooseUsSection';
-import { NewsletterCTA } from '../components/home/NewsletterCTA';
+import { StayInspirationBanner } from '../components/home/StayInspirationBanner';
 import { easeOutSoft } from '../components/home/animations';
 
 interface HomePageProps {
@@ -39,55 +40,98 @@ export const HomePage: React.FC<HomePageProps> = ({
   const reduceMotion = useReducedMotion();
 
   const upcomingBooking = bookings.find((b) => b.status === 'confirmed');
-  const wishlistedHotels = [...hotels]
+  const recommendedHotels = [...hotels]
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 8);
 
-  const countByCity = (label: string) =>
-    hotels.filter((h) => h.city.toLowerCase().includes(label.toLowerCase())).length;
+  const destinationThemes: Record<string, { id: string; en: string; image?: string }> = {
+    badung: { id: 'Pantai & matahari Bali', en: 'Bali sunshine & coastal escapes' },
+    'jakarta pusat': { id: 'Jeda nyaman di tengah kota', en: 'A quiet pause in the city', image: '/images/destinations/jakarta.jpg' },
+    bandung: { id: 'Udara sejuk, suasana baru', en: 'Cool air, a fresh perspective' },
+    yogyakarta: { id: 'Budaya hangat, cerita baru', en: 'Warm culture, new stories' },
+    'lombok tengah': { id: 'Pasir putih & laut biru', en: 'White sands & blue seas' },
+    belitung: { id: 'Liburan tenang di tepi laut', en: 'Slow days by the sea' },
+  };
+  const destinationOrder = Object.keys(destinationThemes);
+  const destinationsByCity = new Map<string, { city: string; title: string; image: string; count: number }>();
 
-  const popularDestinations = [
-    { city: 'Bali', title: 'Bali & Lombok', image: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?auto=format&fit=crop&w=800&q=85', count: countByCity('Bali') },
-    { city: 'Jakarta', title: 'Jakarta Capital', image: 'https://images.unsplash.com/photo-1555899434-94d1368aa7af?auto=format&fit=crop&w=800&q=85', count: countByCity('Jakarta') },
-    { city: 'Bandung', title: 'Bandung Highlands', image: 'https://images.unsplash.com/photo-1588668214407-6ea9a6d8c272?auto=format&fit=crop&w=800&q=85', count: countByCity('Bandung') },
-    { city: 'Tokyo', title: 'Tokyo & Japan', image: 'https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=800&q=85', count: countByCity('Tokyo') },
-    { city: 'Yogyakarta', title: 'Yogyakarta Heritage', image: 'https://images.unsplash.com/photo-1596402184320-417e7178b2cd?auto=format&fit=crop&w=800&q=85', count: countByCity('Yogyakarta') },
-    { city: 'Singapore', title: 'Singapore City', image: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?auto=format&fit=crop&w=800&q=85', count: countByCity('Singapore') }
-  ];
+  // Use real catalog cities so every destination opens a matching Explore result.
+  for (const hotel of hotels) {
+    const city = hotel.city.trim();
+    if (!city) continue;
+    const key = city.toLowerCase();
+    const destination = destinationsByCity.get(key);
+    if (destination) {
+      destination.count += 1;
+      continue;
+    }
+    const theme = destinationThemes[key];
+    destinationsByCity.set(key, {
+      city,
+      title: theme ? (isID ? theme.id : theme.en) : (hotel.province || (isID ? 'Temukan tempat favorit baru' : 'Find your next favourite stay')),
+      image: theme?.image || hotel.image,
+      count: 1,
+    });
+  }
 
+  const popularDestinations = [...destinationsByCity.entries()]
+    .sort(([a], [b]) => {
+      const aRank = destinationOrder.indexOf(a);
+      const bRank = destinationOrder.indexOf(b);
+      return (aRank < 0 ? destinationOrder.length : aRank) - (bRank < 0 ? destinationOrder.length : bRank)
+        || a.localeCompare(b);
+    })
+    .slice(0, 6)
+    .map(([, destination]) => destination);
+
+  const formatCatalogCount = (count: number) => hotels.length && count
+    ? count.toLocaleString(isID ? 'id-ID' : 'en-US')
+    : '—';
+  const provinceCount = new Set(hotels.map((hotel) => hotel.province?.trim().toLowerCase()).filter(Boolean)).size;
+  const roomTypeCount = hotels.reduce((total, hotel) => total + hotel.rooms.length, 0);
   const stats = [
-    { value: '2.4k+', label: isID ? 'Properti kurasi' : 'Curated stays' },
-    { value: '4.9', label: isID ? 'Rating tamu' : 'Guest rating' },
-    { value: '24/7', label: isID ? 'Concierge' : 'Concierge' },
-    { value: '30%', label: isID ? 'Hemat member' : 'Member savings' },
+    { value: formatCatalogCount(hotels.length), label: isID ? 'Penginapan pilihan' : 'Places to stay', icon: Building2 },
+    { value: formatCatalogCount(destinationsByCity.size), label: isID ? 'Kota tujuan' : 'Destination cities', icon: MapPin },
+    { value: formatCatalogCount(roomTypeCount), label: isID ? 'Tipe kamar' : 'Room types', icon: BedDouble },
+    { value: formatCatalogCount(provinceCount), label: isID ? 'Provinsi Indonesia' : 'Indonesian provinces', icon: Compass },
   ];
 
   return (
     <div className="home-luxury pb-24 text-slate-800">
       <HeroSection
         language={language}
+        hotels={hotels}
+        quickCities={popularDestinations.map((destination) => destination.city).slice(0, 4)}
         searchCity={searchCity}
         onSearchCityChange={onSearchCityChange}
         onNavigateTo={onNavigateTo}
       />
 
-      <div className="relative z-10 -mt-8 max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12">
-        <motion.div
-          initial={reduceMotion ? false : { opacity: 0, y: 16 }}
+      <div className="mx-auto mt-8 max-w-[1360px] px-4 sm:mt-10 sm:px-8 lg:px-12">
+        <motion.dl
+          initial={reduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.12, ease: easeOutSoft }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-3"
+          transition={{ duration: 0.3, ease: easeOutSoft }}
+          className="grid grid-cols-2 overflow-hidden rounded-[24px] border border-[#e8e1d5] bg-[#fffdf9] md:grid-cols-4"
+          aria-label={isID ? 'Pilihan dalam katalog Roomly' : 'The Roomly catalog'}
+          data-home-catalog-summary
         >
-          {stats.map((stat) => (
+          {stats.map((stat, index) => {
+            const Icon = stat.icon;
+            return (
             <div
               key={stat.label}
-              className="rounded-2xl bg-white border border-[#E9EEF5] px-5 py-6 text-center shadow-[0_12px_40px_rgba(30,58,138,0.08)]"
+              className={`flex min-w-0 flex-col items-center justify-center border-[#e8e1d5] px-3 py-5 text-center sm:px-5 sm:py-6 ${index < 2 ? 'border-b md:border-b-0' : ''} ${index % 2 === 0 ? 'border-r' : ''} ${index === 1 ? 'md:border-r' : ''}`}
             >
-              <p className="font-serif text-2xl sm:text-3xl text-[#1E3A8A] tracking-tight">{stat.value}</p>
-              <p className="mt-1.5 text-xs sm:text-[13px] text-slate-600 font-medium">{stat.label}</p>
+              <dt className="order-2 mt-1 text-[13px] leading-5 text-slate-600 sm:text-sm">{stat.label}</dt>
+              <dd className="order-1 inline-flex items-center justify-center gap-3 font-serif text-[32px] leading-tight tracking-tight text-navy-dark sm:text-[36px]">
+                <Icon className="hidden size-5 shrink-0 text-gold min-[400px]:block" strokeWidth={1.5} aria-hidden />
+                {stat.value}
+              </dd>
             </div>
-          ))}
-        </motion.div>
+            );
+          })}
+        </motion.dl>
       </div>
 
       <div className="max-w-[1800px] mx-auto px-4 sm:px-8 lg:px-12 2xl:px-16 space-y-20 sm:space-y-24 mt-16 sm:mt-20">
@@ -107,9 +151,12 @@ export const HomePage: React.FC<HomePageProps> = ({
         />
 
         <RecommendedHotels
-          hotels={wishlistedHotels}
+          hotels={recommendedHotels}
           isID={isID}
-          onNavigateTo={onNavigateTo}
+          onNavigateTo={(view) => {
+            onSearchCityChange('');
+            onNavigateTo(view);
+          }}
           onSelectHotel={onSelectHotel}
           onToggleWishlist={onToggleWishlist}
           wishlistedIds={wishlistIds}
@@ -118,7 +165,7 @@ export const HomePage: React.FC<HomePageProps> = ({
 
         <WhyChooseUsSection isID={isID} />
 
-        <NewsletterCTA isID={isID} onNavigateTo={onNavigateTo} />
+        <StayInspirationBanner isID={isID} onNavigateTo={onNavigateTo} />
       </div>
     </div>
   );

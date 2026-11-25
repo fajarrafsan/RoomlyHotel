@@ -29,6 +29,7 @@ export function parseNotificationMessage(rawMessage: string): ParsedNotification
       cleanPreview: rawMessage.trim(),
       invoiceNumber,
       bookingCode,
+      totalPaid: invoiceNumber ? rawMessage.match(/\bTotal(?: paid| dibayar)?:[ \t]*([A-Z]{3}[ \t]+\d+(?:[.,]\d+)*)/i)?.[1] : undefined,
       hasHtml: false,
     };
   }
@@ -55,13 +56,18 @@ export function parseNotificationMessage(rawMessage: string): ParsedNotification
   const totalMatch = rawMessage.match(/Total paid<\/td>\s*<td[^>]*>(?:<b>)?([^<]+)(?:<\/b>)?<\/td>/i);
   if (totalMatch) totalPaid = totalMatch[1].trim();
 
-  // Clean text preview by stripping HTML tags and tables
+  // Keep paragraphs readable when a notification uses a legacy email template.
   let cleanText = rawMessage
-    .replace(/<table[\s\S]*?<\/table>/gi, '') // remove tables for dropdown preview
-    .replace(/<br\s*\/?>/gi, ' ')
-    .replace(/<\/p>/gi, ' ')
+    .replace(/<(head|style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<table\b[^>]*>[\s\S]*?<\/table>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6])>/gi, '\n')
     .replace(/<[^>]+>/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\r?\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 
   if (!cleanText || cleanText.length < 5) {

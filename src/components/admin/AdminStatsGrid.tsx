@@ -1,94 +1,122 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { Wallet, CalendarCheck, UserCheck, Percent, Building2 } from 'lucide-react';
+import { ArrowUpRight, BedDouble, CalendarDays, KeyRound, Percent, Wallet } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ADMIN_PATHS } from '../../lib/routes';
 import { formatCurrency } from '../../lib/utils';
+import type { RoomInventorySummaryResponse } from '../../types/api';
 
 interface AdminStatsGridProps {
   isID: boolean;
+  loading: boolean;
+  bookingsError: boolean;
+  inventory: RoomInventorySummaryResponse | null;
   stats: {
     totalRevenue: number;
     totalBookings: number;
     confirmedCount: number;
     checkedInCount: number;
     completedCount: number;
-    cancelledCount: number;
-    /** null when capacity is unknown — occupancy can't be computed without it. */
-    occupancyRate: number | null;
-    totalHotels: number;
-    /** Real physical unit count from room-service; null if it couldn't be loaded. */
-    totalInventory: number | null;
-    availableUnits: number | null;
-    occupiedUnits: number | null;
-    outOfServiceUnits: number | null;
   };
 }
 
-export const AdminStatsGrid: React.FC<AdminStatsGridProps> = ({ isID, stats }) => {
-  const cards = [
+export function AdminStatsGrid({ isID, loading, bookingsError, inventory, stats }: AdminStatsGridProps) {
+  const number = new Intl.NumberFormat(isID ? 'id-ID' : 'en-US');
+  const occupancy = inventory && inventory.totalUnits > 0 && Number.isFinite(inventory.occupiedUnits)
+    ? Math.min(100, Math.round((inventory.occupiedUnits / inventory.totalUnits) * 100))
+    : null;
+  const hasBookings = !bookingsError && !loading;
+  const metrics = [
     {
-      title: isID ? 'Total Pendapatan' : 'Total Revenue',
-      value: formatCurrency(stats.totalRevenue),
-      subtext: isID ? 'Dari reservasi terkonfirmasi' : 'From confirmed stays',
+      label: isID ? 'Total pendapatan' : 'Total revenue',
+      value: hasBookings ? formatCurrency(stats.totalRevenue) : '—',
+      description: isID ? 'Dari reservasi lunas' : 'From paid reservations',
       icon: Wallet,
-      color: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+      tone: 'bg-emerald-50 text-emerald-800',
     },
     {
-      title: isID ? 'Total Pemesanan' : 'Total Bookings',
-      value: stats.totalBookings.toLocaleString(),
-      subtext: isID ? `${stats.confirmedCount} menunggu check-in` : `${stats.confirmedCount} pending check-in`,
-      icon: CalendarCheck,
-      color: 'bg-blue-50 text-blue-600 border-blue-100',
+      label: isID ? 'Reservasi' : 'Reservations',
+      value: hasBookings ? number.format(stats.totalBookings) : '—',
+      description: hasBookings
+        ? (isID ? `${number.format(stats.confirmedCount)} menunggu check-in` : `${number.format(stats.confirmedCount)} awaiting check-in`)
+        : '',
+      icon: CalendarDays,
+      tone: 'bg-navy-soft text-navy-dark',
     },
     {
-      title: isID ? 'Tamu Aktif / Check-In' : 'Active Check-Ins',
-      value: stats.checkedInCount.toLocaleString(),
-      subtext: isID ? `${stats.completedCount} selesai menginap` : `${stats.completedCount} completed stays`,
-      icon: UserCheck,
-      color: 'bg-amber-50 text-amber-600 border-amber-100',
+      label: isID ? 'Tamu menginap' : 'Active stays',
+      value: hasBookings ? number.format(stats.checkedInCount) : '—',
+      description: hasBookings
+        ? (isID ? `${number.format(stats.completedCount)} masa inap selesai` : `${number.format(stats.completedCount)} stays completed`)
+        : '',
+      icon: KeyRound,
+      tone: 'bg-gold-soft text-gold-dark',
     },
     {
-      title: isID ? 'Tingkat Okupansi' : 'Occupancy Rate',
-      value: stats.occupancyRate === null ? '—' : `${stats.occupancyRate}%`,
-      subtext:
-        stats.totalInventory === null
-          ? (isID ? 'Kapasitas belum dapat dimuat' : 'Capacity unavailable')
-          : isID
-          ? `${stats.checkedInCount} dari ${stats.totalInventory} unit kamar terisi`
-          : `${stats.checkedInCount} of ${stats.totalInventory} room units occupied`,
+      label: isID ? 'Okupansi kamar' : 'Room occupancy',
+      value: occupancy != null && !loading ? `${occupancy}%` : '—',
+      description: inventory && occupancy != null && !loading
+        ? (isID ? `${number.format(inventory.occupiedUnits)} dari ${number.format(inventory.totalUnits)} unit terisi` : `${number.format(inventory.occupiedUnits)} of ${number.format(inventory.totalUnits)} rooms occupied`)
+        : (isID ? 'Data unit kamar' : 'Physical room data'),
       icon: Percent,
-      color: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+      tone: 'bg-violet-50 text-violet-800',
     },
   ];
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-5">
-      {cards.map((card, idx) => (
-        <motion.div
-          key={card.title}
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: idx * 0.08, duration: 0.4 }}
-          className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-100/90 shadow-xs hover:shadow-md transition-all space-y-2.5 sm:space-y-3"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              {card.title}
-            </span>
-            <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center shrink-0 ${card.color}`}>
-              <card.icon className="w-4 h-4" />
-            </div>
+    <section aria-labelledby="admin-metrics" aria-busy={loading}>
+      <h2 id="admin-metrics" className="mb-3 text-lg font-semibold text-navy-dark">{isID ? 'Ringkasan operasional' : 'Operations overview'}</h2>
+      <dl className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+        {metrics.map(({ label, value, description, icon: Icon, tone }) => (
+          <div key={label} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm sm:p-5">
+            <span className={`inline-grid size-8 place-items-center rounded-lg sm:size-10 ${tone}`}><Icon className="size-4 sm:size-5" aria-hidden /></span>
+            <dt className="mt-2 text-xs font-semibold leading-4 text-slate-600 sm:text-sm">{label}</dt>
+            <dd className="mt-1 break-words text-[clamp(1rem,2.25vw,1.85rem)] font-bold leading-tight tracking-tight text-navy-dark tabular-nums">{value}</dd>
+            {description && <dd className="mt-1.5 text-xs leading-4 text-slate-600">{description}</dd>}
           </div>
-
-          <div>
-            <p className="text-lg sm:text-2xl font-bold text-slate-900 tracking-tight truncate">
-              {card.value}
-            </p>
-            <p className="text-[10px] sm:text-[11px] text-slate-400 font-light mt-0.5 sm:mt-1 leading-snug">
-              {card.subtext}
-            </p>
-          </div>
-        </motion.div>
-      ))}
-    </div>
+        ))}
+      </dl>
+    </section>
   );
-};
+}
+
+export function AdminRoomInventory({ inventory, loading, isID }: { inventory: RoomInventorySummaryResponse | null; loading: boolean; isID: boolean }) {
+  const number = new Intl.NumberFormat(isID ? 'id-ID' : 'en-US');
+  const segments = inventory ? [
+    { label: isID ? 'Tersedia' : 'Available', count: inventory.availableUnits, color: 'bg-emerald-600' },
+    { label: isID ? 'Terisi' : 'Occupied', count: inventory.occupiedUnits, color: 'bg-navy' },
+    { label: isID ? 'Dipesan' : 'Reserved', count: inventory.reservedUnits, color: 'bg-sky-500' },
+    { label: isID ? 'Perlu dibersihkan' : 'Housekeeping', count: inventory.housekeepingUnits, color: 'bg-amber-500' },
+    { label: isID ? 'Tidak beroperasi' : 'Out of service', count: inventory.outOfServiceUnits, color: 'bg-slate-500' },
+  ] : [];
+
+  return (
+    <section className="min-w-0 rounded-[20px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="admin-inventory" aria-busy={loading}>
+      <span className="inline-grid size-10 place-items-center rounded-xl bg-navy-soft text-navy"><BedDouble className="size-5" aria-hidden /></span>
+      <h2 id="admin-inventory" className="mt-3 text-lg font-semibold leading-snug text-navy-dark">{isID ? 'Kesiapan kamar' : 'Room readiness'}</h2>
+      {loading ? (
+        <p className="mt-3 text-sm text-slate-600">{isID ? 'Memuat inventaris…' : 'Loading inventory…'}</p>
+      ) : inventory ? (
+        <>
+          <p className="mt-1 text-sm text-slate-600">{number.format(inventory.totalUnits)} {isID ? 'unit kamar' : 'room units'}</p>
+          <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
+            {segments.filter(segment => segment.count > 0).map(segment => (
+              <span key={segment.label} className={segment.color} style={{ flex: segment.count }} />
+            ))}
+          </div>
+          <dl className="mt-3 divide-y divide-slate-100">
+            {segments.map(segment => (
+              <div key={segment.label} className="flex items-center justify-between gap-2 py-2 text-sm">
+                <dt className="flex items-center gap-2 text-slate-700"><span className={`size-2 rounded-full ${segment.color}`} aria-hidden />{segment.label}</dt>
+                <dd className="font-semibold text-navy-dark tabular-nums">{Number.isFinite(segment.count) ? number.format(segment.count) : '—'}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      ) : (
+        <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">{isID ? 'Data inventaris belum tersedia.' : 'Room inventory is unavailable.'}</p>
+      )}
+      <Link to={ADMIN_PATHS.housekeeping} className="mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-1 text-sm font-semibold text-navy hover:underline">
+        {isID ? 'Buka Housekeeping' : 'Open Housekeeping'}<ArrowUpRight className="size-4" aria-hidden />
+      </Link>
+    </section>
+  );
+}

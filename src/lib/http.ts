@@ -1,4 +1,4 @@
-import { ApiErrorBody } from '../types/api';
+import { AdminOtpChallengeDto, ApiErrorBody } from '../types/api';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
 
@@ -25,6 +25,7 @@ const REFRESH_EXCLUDED_PATHS = new Set([
   `${AUTH_BASE}/login`,
   `${AUTH_BASE}/google`,
   `${AUTH_BASE}/admin/verify-otp`,
+  `${AUTH_BASE}/admin/resend-otp`,
   `${AUTH_BASE}/logout`,
   REFRESH_PATH,
 ]);
@@ -33,6 +34,16 @@ export const AUTH_SESSION_EXPIRED_EVENT = 'roomly:auth-session-expired';
 
 let refreshPromise: Promise<boolean> | null = null;
 let refreshGeneration = 0;
+let authRequestEpoch = 0;
+let refreshController: AbortController | null = null;
+
+/** Invalidates retries from an earlier session without cancelling business requests. */
+export function invalidateAuthSessionRequests(): void {
+  authRequestEpoch += 1;
+  refreshController?.abort();
+  refreshController = null;
+  refreshPromise = null;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -51,11 +62,13 @@ export class ApiError extends Error {
 // switch to an OTP-entry step rather than treating it as a failed login.
 export class OtpRequiredError extends Error {
   email: string;
+  challenge: AdminOtpChallengeDto | null;
 
-  constructor(email: string) {
+  constructor(email: string, challenge: AdminOtpChallengeDto | null = null) {
     super('OTP verification required');
     this.name = 'OtpRequiredError';
     this.email = email;
+    this.challenge = challenge;
   }
 }
 
@@ -73,20 +86,40 @@ function canRefresh(path: string): boolean {
   return !REFRESH_EXCLUDED_PATHS.has(path.split('?')[0]);
 }
 
-async function refreshSession(): Promise<boolean> {
+async function refreshSession(expectedEpoch: number): Promise<boolean> {
+  if (expectedEpoch !== authRequestEpoch) return false;
   if (!refreshPromise) {
-    refreshPromise = fetch(REFRESH_PATH, {
+    const controller = new AbortController();
+    refreshController = controller;
+    const pending = fetch(REFRESH_PATH, {
       method: 'POST',
       credentials: 'include',
+      signal: controller.signal,
     })
-      .then((response) => {
-        if (response.ok) refreshGeneration += 1;
-        return response.ok;
+      .then(async (response) => {
+        if (expectedEpoch !== authRequestEpoch) return false;
+        if (response.ok) {
+          refreshGeneration += 1;
+          return true;
+        }
+        if (response.status === 401) return false;
+        // An unavailable refresh service does not prove that the session ended.
+        // Surface its real error so the account guard can offer verification.
+        const payload = await parseBody(response);
+        const body = (payload && typeof payload === 'object' ? payload : null) as ApiErrorBody | null;
+        throw new ApiError(response.status, body, body?.message || `${response.status} ${response.statusText}`);
       })
-      .catch(() => false)
+      .catch((error) => {
+        if (expectedEpoch !== authRequestEpoch) return false;
+        throw error;
+      })
       .finally(() => {
-        refreshPromise = null;
+        if (refreshPromise === pending) {
+          refreshPromise = null;
+          refreshController = null;
+        }
       });
+    refreshPromise = pending;
   }
 
   return refreshPromise;
@@ -99,18 +132,21 @@ async function refreshSession(): Promise<boolean> {
 async function fetchWithAuthRetry(path: string, options: RequestInit = {}): Promise<Response> {
   const requestOptions: RequestInit = { ...options, credentials: 'include' };
   const requestGeneration = refreshGeneration;
+  const requestEpoch = authRequestEpoch;
   const response = await fetch(path, requestOptions);
 
   if (response.status !== 401 || !canRefresh(path)) return response;
+  if (requestEpoch !== authRequestEpoch) return response;
   // A different request may already have refreshed while this request was in
   // flight. In that case retry with the new cookies without rotating again.
-  if (requestGeneration === refreshGeneration && !(await refreshSession())) {
-    window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
+  if (requestGeneration === refreshGeneration && !(await refreshSession(requestEpoch))) {
+    if (requestEpoch === authRequestEpoch) window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
     return response;
   }
 
+  if (requestEpoch !== authRequestEpoch) return response;
   const retryResponse = await fetch(path, requestOptions);
-  if (retryResponse.status === 401) {
+  if (retryResponse.status === 401 && requestEpoch === authRequestEpoch) {
     window.dispatchEvent(new Event(AUTH_SESSION_EXPIRED_EVENT));
   }
   return retryResponse;
@@ -141,8 +177,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const http = {
   get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal) =>
+    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined, signal }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body?: unknown) =>

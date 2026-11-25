@@ -1,6 +1,7 @@
-import React from 'react';
-import { motion } from 'motion/react';
-import { X, Loader2, AlertCircle } from 'lucide-react';
+import React, { useId } from 'react';
+import { LoaderCircle } from 'lucide-react';
+import { OperationsDialog } from './OperationsDialog';
+import { OperationsNotice, operationField, operationPrimary, operationSecondary } from './OperationsPage';
 
 interface AdminFormModalProps {
   title: string;
@@ -16,60 +17,30 @@ interface AdminFormModalProps {
 
 export const AdminFormModal: React.FC<AdminFormModalProps> = ({
   title, subtitle, isID, submitting, error, submitLabel, onClose, onSubmit, children,
-}) => (
-  <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 sm:p-8">
-    <motion.div
-      initial={{ opacity: 0, y: 16, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      className="w-full max-w-2xl bg-white rounded-3xl border border-slate-100 shadow-2xl my-auto"
-    >
-      <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-100">
-        <div className="min-w-0">
-          <h3 className="text-base font-semibold text-slate-900 tracking-tight">{title}</h3>
-          {subtitle && <p className="text-[11px] text-slate-400 font-light mt-0.5 font-mono">{subtitle}</p>}
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer shrink-0"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      <form onSubmit={onSubmit} className="p-6 space-y-5">
-        {children}
-
-        {error && (
-          <p className="text-[12px] text-rose-600 font-medium flex items-start gap-1.5">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </p>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 text-xs font-semibold transition-all cursor-pointer"
-          >
+}) => {
+  const formId = useId();
+  return (
+    <OperationsDialog title={title} description={subtitle} isID={isID} busy={submitting} size="form" onClose={onClose}
+      footer={<div className="space-y-2">
+        {error && <div className="max-h-24 overflow-y-auto"><OperationsNotice>{error}</OperationsNotice></div>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={submitting} className={operationSecondary}>
             {isID ? 'Batal' : 'Cancel'}
           </button>
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-          >
-            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+          <button type="submit" form={formId} disabled={submitting} className={operationPrimary}>
+            {submitting && <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />}
             {submitLabel}
           </button>
         </div>
+      </div>}>
+      <form id={formId} onSubmit={onSubmit}>
+        <fieldset disabled={submitting} className="min-w-0 space-y-4">{children}</fieldset>
       </form>
-    </motion.div>
-  </div>
-);
+    </OperationsDialog>
+  );
+};
 
-const FIELD_CLASS =
-  'w-full p-2.5 rounded-xl border border-slate-200 bg-white text-[13px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors';
+const FIELD_CLASS = operationField + ' focus-visible:outline-2 focus-visible:outline-navy focus-visible:outline-offset-1';
 
 interface FieldLabelProps {
   label: string;
@@ -78,33 +49,40 @@ interface FieldLabelProps {
 }
 
 interface FieldProps extends FieldLabelProps {
-  children: React.ReactNode;
+  id?: string;
+  describedBy?: string;
+  children: (binding: { id: string; 'aria-describedby'?: string }) => React.ReactNode;
 }
 
-export const Field: React.FC<FieldProps> = ({ label, required, hint, children }) => (
-  <label className="block">
-    <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-      {label}
-      {required && <span className="text-rose-500 ml-0.5">*</span>}
-    </span>
-    {children}
-    {hint && <span className="text-[10px] text-slate-400 font-light block mt-1">{hint}</span>}
-  </label>
-);
+const Field: React.FC<FieldProps> = ({ id, describedBy, label, required, hint, children }) => {
+  const generated = useId();
+  const fieldId = id ?? generated;
+  const hintId = hint ? generated + '-hint' : undefined;
+  const description = [describedBy, hintId].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className="min-w-0">
+      <label htmlFor={fieldId} className="mb-1.5 block text-xs font-semibold text-slate-700">
+        {label}{required && <span aria-hidden className="ml-0.5 text-rose-700">*</span>}
+      </label>
+      {children({ id: fieldId, 'aria-describedby': description })}
+      {hint && <p id={hintId} className="mt-1 break-words text-xs text-slate-600">{hint}</p>}
+    </div>
+  );
+};
 
 export const TextField: React.FC<
   FieldLabelProps & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'className'>
-> = ({ label, required, hint, ...inputProps }) => (
-  <Field label={label} required={required} hint={hint}>
-    <input {...inputProps} required={required} className={FIELD_CLASS} />
+> = ({ label, required, hint, id, 'aria-describedby': describedBy, ...inputProps }) => (
+  <Field label={label} required={required} hint={hint} id={id} describedBy={describedBy}>
+    {binding => <input {...inputProps} {...binding} required={required} className={FIELD_CLASS} />}
   </Field>
 );
 
 export const TextAreaField: React.FC<
   FieldLabelProps & Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'>
-> = ({ label, required, hint, ...props }) => (
-  <Field label={label} required={required} hint={hint}>
-    <textarea {...props} required={required} className={`${FIELD_CLASS} resize-none`} />
+> = ({ label, required, hint, id, 'aria-describedby': describedBy, ...props }) => (
+  <Field label={label} required={required} hint={hint} id={id} describedBy={describedBy}>
+    {binding => <textarea {...props} {...binding} required={required} className={`${FIELD_CLASS} resize-none`} />}
   </Field>
 );
 
@@ -112,12 +90,12 @@ export const SelectField: React.FC<
   FieldLabelProps
   & { options: { value: string; label: string }[] }
   & Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'className' | 'children'>
-> = ({ label, required, hint, options, ...props }) => (
-  <Field label={label} required={required} hint={hint}>
-    <select {...props} required={required} className={FIELD_CLASS}>
+> = ({ label, required, hint, options, id, 'aria-describedby': describedBy, ...props }) => (
+  <Field label={label} required={required} hint={hint} id={id} describedBy={describedBy}>
+    {binding => <select {...props} {...binding} required={required} className={FIELD_CLASS}>
       {options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
-    </select>
+    </select>}
   </Field>
 );

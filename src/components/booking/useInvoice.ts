@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Booking } from '../../types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AuthUser, Booking } from '../../types';
 import { InvoiceResponse } from '../../types/api';
 import { invoiceApi } from '../../api/invoices';
 import { ApiError } from '../../lib/http';
+import { useAuth } from '../../context/AuthContext';
 
 export interface UseInvoiceResult {
   invoice: InvoiceResponse | null;
@@ -15,62 +16,113 @@ export interface UseInvoiceResult {
   downloadPdf: () => Promise<void>;
 }
 
+interface InvoiceState {
+  owner: AuthUser | null;
+  booking: Booking | null;
+  invoice: InvoiceResponse | null;
+  loading: boolean;
+  notFound: boolean;
+  error: string | null;
+  downloading: boolean;
+  downloadError: string | null;
+}
+
+function emptyInvoice(owner: AuthUser | null, booking: Booking | null): InvoiceState {
+  return { owner, booking, invoice: null, loading: Boolean(owner && booking), notFound: false, error: null, downloading: false, downloadError: null };
+}
+
 export function useInvoice(booking: Booking | null, isID: boolean): UseInvoiceResult {
-  const [invoice, setInvoice] = useState<InvoiceResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const { user } = useAuth();
+  const mounted = useRef(false);
+  const currentUser = useRef(user);
+  const currentBooking = useRef(booking);
+  currentUser.current = user;
+  currentBooking.current = booking;
+  const loadSequence = useRef(0);
+  const downloadSequence = useRef(0);
+  const pendingDownload = useRef<object | null>(null);
+  const [state, setState] = useState<InvoiceState>(() => emptyInvoice(user, booking));
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
-  const loadInvoice = useCallback(async (currentBooking: Booking) => {
-    setLoading(true);
-    setNotFound(false);
-    setError(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      loadSequence.current++;
+      downloadSequence.current++;
+      pendingDownload.current = null;
+    };
+  }, []);
 
-    const numericId = Number(currentBooking.id);
+  const loadInvoice = useCallback(async () => {
+    const owner = user;
+    const target = booking;
+    if (!owner || !target || !mounted.current || currentUser.current !== owner || currentBooking.current !== target) return;
+    const sequence = ++loadSequence.current;
+    downloadSequence.current++;
+    pendingDownload.current = null;
+    const isCurrent = () => mounted.current && currentUser.current === owner && currentBooking.current === target && loadSequence.current === sequence;
+    setState(previous => isCurrent() ? emptyInvoice(owner, target) : previous);
+    const numericId = Number(target.id);
     if (!Number.isInteger(numericId) || numericId <= 0) {
-      setError(isID ? 'ID reservasi tidak valid.' : 'The booking identifier is invalid.');
-      setLoading(false);
+      setState(previous => isCurrent() ? { ...previous, error: isID ? 'ID reservasi tidak valid.' : 'The booking identifier is invalid.', loading: false } : previous);
       return;
     }
 
     try {
       const found = await invoiceApi.getByBookingId(numericId);
+      if (!isCurrent()) return;
       if (!found?.invoiceNumber) {
         throw new Error('Invoice response is missing its invoice number');
       }
-      setInvoice(found);
+      setState(previous => isCurrent() ? { ...previous, invoice: found } : previous);
     } catch (err) {
-      setInvoice(null);
+      if (!isCurrent()) return;
       if (err instanceof ApiError && err.status === 404) {
         // Invoice generation is asynchronous and only starts after payment success.
         // A 404 therefore means "not issued yet", not a fabricated local receipt.
-        setNotFound(true);
+        setState(previous => isCurrent() ? { ...previous, invoice: null, notFound: true } : previous);
       } else {
-        setError(
-          err instanceof ApiError
+        setState(previous => isCurrent() ? { ...previous, invoice: null, error: err instanceof ApiError
             ? err.message
-            : (isID ? 'Invoice tidak dapat dimuat dari server.' : 'The invoice could not be loaded from the server.')
-        );
+            : (isID ? 'Invoice tidak dapat dimuat dari server.' : 'The invoice could not be loaded from the server.') } : previous);
       }
     } finally {
-      setLoading(false);
+      if (isCurrent()) setState(previous => isCurrent() ? { ...previous, loading: false } : previous);
     }
-  }, [isID]);
+  }, [user, booking, isID]);
 
   useEffect(() => {
-    if (!booking) return;
-    setInvoice(null);
-    loadInvoice(booking);
-  }, [booking, loadInvoice]);
+    setState(emptyInvoice(user, booking));
+    void loadInvoice();
+    return () => {
+      loadSequence.current++;
+      downloadSequence.current++;
+      pendingDownload.current = null;
+    };
+  }, [user, booking, loadInvoice]);
+
+  // Hide the previous document on the very first account/booking change render.
+  const visible = state.owner === user && state.booking === booking ? state : emptyInvoice(user, booking);
 
   const downloadPdf = useCallback(async () => {
-    if (!invoice) return;
-    setDownloading(true);
-    setDownloadError(null);
+    const owner = user;
+    const target = booking;
+    const invoice = state.owner === owner && state.booking === target ? state.invoice : null;
+    if (!owner || !target || !invoice || !mounted.current || currentUser.current !== owner || currentBooking.current !== target || pendingDownload.current) return;
+    const sequence = ++downloadSequence.current;
+    const documentSequence = loadSequence.current;
+    const pending = {};
+    pendingDownload.current = pending;
+    const isCurrent = () => mounted.current && currentUser.current === owner && currentBooking.current === target
+      && downloadSequence.current === sequence && loadSequence.current === documentSequence
+      && stateRef.current.owner === owner && stateRef.current.booking === target && stateRef.current.invoice === invoice;
+    setState(previous => isCurrent() ? { ...previous, downloading: true, downloadError: null } : previous);
     try {
       const { blob, filename } = await invoiceApi.downloadPdf(invoice.id);
+      // A previous account's or closed document's PDF must never start downloading.
+      if (!isCurrent()) return;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -78,26 +130,25 @@ export function useInvoice(booking: Booking | null, isID: boolean): UseInvoiceRe
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (err) {
-      setDownloadError(
-        err instanceof ApiError
+      if (isCurrent()) setState(previous => isCurrent() ? { ...previous, downloadError: err instanceof ApiError
           ? err.message
-          : (isID ? 'PDF invoice gagal diunduh.' : 'The invoice PDF could not be downloaded.')
-      );
+          : (isID ? 'PDF invoice gagal diunduh.' : 'The invoice PDF could not be downloaded.') } : previous);
     } finally {
-      setDownloading(false);
+      if (pendingDownload.current === pending) pendingDownload.current = null;
+      if (isCurrent()) setState(previous => isCurrent() ? { ...previous, downloading: false } : previous);
     }
-  }, [invoice, isID]);
+  }, [user, booking, state.owner, state.booking, state.invoice, isID]);
 
   return {
-    invoice,
-    loading,
-    notFound,
-    error,
-    downloading,
-    downloadError,
-    reload: () => booking && loadInvoice(booking),
+    invoice: visible.invoice,
+    loading: visible.loading,
+    notFound: visible.notFound,
+    error: visible.error,
+    downloading: visible.downloading,
+    downloadError: visible.downloadError,
+    reload: () => { void loadInvoice(); },
     downloadPdf,
   };
 }

@@ -77,16 +77,8 @@ export const RoomFormModal: React.FC<RoomFormModalProps> = ({
   return (
     <AdminFormModal
       isID={isID}
-      title={
-        isEdit
-          ? (isID ? `Ubah Kamar · ${room.roomName}` : `Edit Room · ${room.roomName}`)
-          : (isID ? `Kamar Baru · ${hotelName}` : `New Room · ${hotelName}`)
-      }
-      subtitle={
-        isEdit
-          ? `PATCH /api/admin/hotels/rooms/${room.id}`
-          : `POST /api/admin/hotels/${hotelId}/rooms`
-      }
+      title={isEdit ? (isID ? 'Ubah tipe kamar' : 'Edit room type') : (isID ? 'Tambah tipe kamar' : 'Add room type')}
+      subtitle={room?.roomName ?? hotelName}
       submitting={submitting}
       error={error}
       submitLabel={isEdit ? (isID ? 'Simpan Perubahan' : 'Save Changes') : (isID ? 'Buat Kamar' : 'Create Room')}
@@ -100,7 +92,7 @@ export const RoomFormModal: React.FC<RoomFormModalProps> = ({
         />
         <TextField
           label={isID ? 'Harga Dasar / Malam (IDR)' : 'Base Price / Night (IDR)'} required
-          type="number" min={1} step="1000"
+          type="number" min={1} step="any"
           value={form.basePrice} onChange={(e) => set('basePrice', Number(e.target.value))}
         />
       </div>
@@ -149,9 +141,9 @@ export const RoomFormModal: React.FC<RoomFormModalProps> = ({
             value={form.status}
             onChange={(e) => set('status', e.target.value as RoomStatus)}
             options={[
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'INACTIVE', label: 'Inactive' },
-              { value: 'UNDER_MAINTENANCE', label: 'Under maintenance' },
+              { value: 'ACTIVE', label: isID ? 'Aktif' : 'Active' },
+              { value: 'INACTIVE', label: isID ? 'Nonaktif' : 'Inactive' },
+              { value: 'UNDER_MAINTENANCE', label: isID ? 'Dalam perawatan' : 'Under maintenance' },
             ]}
           />
         )}

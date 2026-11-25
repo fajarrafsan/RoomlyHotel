@@ -95,7 +95,7 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 16 }}
         transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
-        className="hotel-detail-modal bg-white rounded-none sm:rounded-3xl max-w-5xl w-full shadow-[0_24px_64px_rgba(30,58,138,0.18)] border-0 sm:border border-navy-soft overflow-hidden my-0 sm:my-8 relative max-h-[100vh] sm:max-h-[92vh] flex flex-col transform-gpu"
+        className="hotel-detail-modal bg-white rounded-none sm:rounded-3xl max-w-[1120px] w-full shadow-[0_24px_64px_rgba(30,58,138,0.18)] border-0 sm:border border-navy-soft overflow-hidden my-0 sm:my-4 relative max-h-[100dvh] sm:max-h-[calc(100dvh-2rem)] flex flex-col transform-gpu"
         onClick={(e) => e.stopPropagation()}
       >
         {isLoadingDetail ? (
@@ -142,7 +142,7 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
               ))}
             </div>
 
-            <div className="p-5 sm:p-8 overflow-y-auto flex-1 space-y-8 bg-white">
+            <div className="min-h-0 p-4 sm:p-6 overflow-y-auto flex-1 space-y-6 bg-slate-50/80" data-hotel-detail-scroll>
               {activeTab === 'rooms' && (
                 <RoomsTab
                   hotel={hotel}
@@ -169,7 +169,7 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
               )}
             </div>
 
-            <div className="sm:hidden sticky bottom-0 left-0 right-0 bg-white border-t border-navy-soft p-4 flex items-center justify-between z-20">
+            {activeTab !== 'rooms' && <div className="sm:hidden sticky bottom-0 left-0 right-0 bg-white border-t border-navy-soft p-4 flex items-center justify-between z-20">
               <div>
                 {hotel.originalPrice && (
                   <span className="text-[12px] text-slate-500 line-through block">{formatCurrency(hotel.originalPrice)}</span>
@@ -184,7 +184,7 @@ export const HotelDetailModal: React.FC<HotelDetailModalProps> = ({
               >
                 {isID ? 'Lihat kamar' : 'See rooms'}
               </button>
-            </div>
+            </div>}
           </>
         )}
       </motion.div>

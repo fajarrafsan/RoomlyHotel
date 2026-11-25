@@ -8,7 +8,8 @@ export function formatCurrency(amount: number): string {
 
 export function formatDate(dateStr: string, lang: 'ID' | 'EN' = 'ID'): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  // Hotel stay dates are calendar dates, independent of the viewer's timezone.
+  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T12:00:00` : dateStr);
   if (isNaN(date.getTime())) return dateStr;
 
   return new Intl.DateTimeFormat(lang === 'ID' ? 'id-ID' : 'en-US', {

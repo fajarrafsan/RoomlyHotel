@@ -1,293 +1,212 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { FileText, Download, Ban, Send, History, Loader2, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Ban, ChevronLeft, ChevronRight, Download, FileText, History, LoaderCircle, Search, Send, X } from 'lucide-react';
 import { adminApi } from '../api/admin';
+import { useAuth } from '../context/AuthContext';
+import { useOperationsQuery } from '../hooks/useOperationsQuery';
 import { ApiError } from '../lib/http';
 import { formatCurrency } from '../lib/utils';
-import { Language } from '../types';
-import { InvoiceEventResponse, InvoiceStatus, InvoiceSummaryResponse } from '../types/api/invoice';
+import type { Language } from '../types';
+import type { InvoiceStatus, InvoiceSummaryResponse } from '../types/api';
 import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
-import { AdminFilterChips, AdminPageShell, AdminTableCard } from '../components/admin/AdminPageShell';
+import { OperationsDialog } from '../components/admin/OperationsDialog';
+import {
+  OperationsEmpty, OperationsFilters, OperationsList, OperationsNotice, OperationsPage,
+  operationDanger, operationDate, operationField, operationPanel, operationPrimary, operationSecondary,
+} from '../components/admin/OperationsPage';
 import { StatusPill } from '../components/admin/StatusPill';
 
-const STATUS_OPTIONS = (isID: boolean) => [
-  { value: '', label: isID ? 'Semua' : 'All' },
-  { value: 'DRAFT', label: 'Draft' },
-  { value: 'ISSUED', label: 'Issued' },
-  { value: 'VOID', label: 'Void' },
-  { value: 'REFUNDED', label: 'Refunded' },
-];
+const statusLabels: Record<InvoiceStatus, [string, string]> = {
+  DRAFT: ['Draf', 'Draft'], ISSUED: ['Diterbitkan', 'Issued'], VOID: ['Dibatalkan', 'Voided'], REFUNDED: ['Dikembalikan', 'Refunded'],
+};
+const pageSize = 25;
 
-export const AdminInvoicesPage: React.FC<{ language: Language; onOpenAuth?: () => void }> = ({
-  language,
-  onOpenAuth,
-}) => {
+export function AdminInvoicesPage({ language, onOpenAuth }: { language: Language; onOpenAuth?: () => void }) {
   const isID = language === 'ID';
-
-  const [invoices, setInvoices] = useState<InvoiceSummaryResponse[]>([]);
-  const [totalElements, setTotalElements] = useState(0);
-  const [status, setStatus] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [appliedSearch, setAppliedSearch] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const locale = isID ? 0 : 1;
+  const { user, isLoading: authLoading } = useAuth();
+  const allowed = user?.role === 'ADMIN';
+  const [search, setSearch] = useState('');
+  const [filters, setFilters] = useState({ status: '', search: '', page: 0 });
   const [busyId, setBusyId] = useState<number | null>(null);
-
-  // Audit trail is loaded on demand — one invoice's history at a time.
+  const [notice, setNotice] = useState<{ text: string; success: boolean } | null>(null);
   const [historyFor, setHistoryFor] = useState<InvoiceSummaryResponse | null>(null);
-  const [history, setHistory] = useState<InvoiceEventResponse[] | null>(null);
+  const [voidTarget, setVoidTarget] = useState<InvoiceSummaryResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const [voidError, setVoidError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const page = await adminApi.searchInvoices({
-        status: (status || undefined) as InvoiceStatus | undefined,
-        // The backend filters by exact bookingCode, so a typed term is sent as-is.
-        bookingCode: appliedSearch || undefined,
-        size: 50,
-      });
-      const content = page?.content ?? [];
-      setInvoices(content);
-      setTotalElements(page?.totalElements ?? content.length);
-    } catch (err) {
-      setInvoices([]);
-      setTotalElements(0);
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat invoice.' : 'Failed to load invoices.'));
-    } finally {
-      setLoading(false);
+  const read = useCallback(() => adminApi.searchInvoices({
+    status: (filters.status || undefined) as InvoiceStatus | undefined,
+    bookingCode: filters.search || undefined,
+    page: filters.page,
+    size: pageSize,
+  }), [filters, user?.userId]);
+  const { data, loading, error, refresh } = useOperationsQuery(read, allowed, isID ? 'Gagal memuat daftar invoice.' : 'Could not load the invoice list.');
+  const rows = data?.content ?? [];
+  const readHistory = useCallback(() => historyFor ? adminApi.invoiceHistory(historyFor.id) : Promise.resolve([]), [historyFor, user?.userId]);
+  const history = useOperationsQuery(readHistory, allowed && !!historyFor, isID ? 'Gagal memuat riwayat.' : 'Could not load the status history.');
+
+  useEffect(() => {
+    if (!loading && data && filters.page >= data.totalPages && filters.page > 0) {
+      setFilters(current => ({ ...current, page: Math.max(0, data.totalPages - 1) }));
     }
-  }, [status, appliedSearch]);
+  }, [data, filters.page, loading]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const withBusy = async (id: number, action: () => Promise<void>) => {
+  const runAction = async (id: number, task: () => Promise<void>, success?: string) => {
+    if (busyId != null || loading) return;
     setBusyId(id);
-    setError(null);
+    setNotice(null);
     try {
-      await action();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Aksi gagal.' : 'Action failed.'));
+      await task();
+      if (success) setNotice({ text: success, success: true });
+    } catch (failure) {
+      setNotice({ text: failure instanceof ApiError ? failure.message : (isID ? 'Tindakan invoice gagal.' : 'The invoice action failed.'), success: false });
     } finally {
       setBusyId(null);
     }
   };
 
-  const handleDownload = (inv: InvoiceSummaryResponse) =>
-    withBusy(inv.id, async () => {
-      const { blob, filename } = await adminApi.downloadInvoicePdf(inv.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `${inv.invoiceNumber}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    });
+  const download = (invoice: InvoiceSummaryResponse) => void runAction(invoice.id, async () => {
+    const file = await adminApi.downloadInvoicePdf(invoice.id);
+    const url = URL.createObjectURL(file.blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = !file.filename || file.filename === 'download' ? `${invoice.invoiceNumber}.pdf` : file.filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
 
-  const handleVoid = (inv: InvoiceSummaryResponse) => {
-    const reason = window.prompt(
-      isID ? `Alasan pembatalan invoice ${inv.invoiceNumber}:` : `Reason for voiding ${inv.invoiceNumber}:`
-    );
-    if (!reason) return;
-    return withBusy(inv.id, async () => {
-      const updated = await adminApi.voidInvoice(inv.id, reason);
-      setInvoices((prev) => prev.map((i) => (i.id === inv.id ? { ...i, status: updated.status } : i)));
-    });
+  const submitVoid = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!voidTarget || busyId != null || !reason.trim()) return;
+    setBusyId(voidTarget.id);
+    setVoidError(null);
+    setNotice(null);
+    try {
+      await adminApi.voidInvoice(voidTarget.id, reason.trim());
+      setVoidTarget(null);
+      setNotice({ text: isID ? 'Invoice dibatalkan.' : 'Invoice voided.', success: true });
+      await refresh();
+    } catch (failure) {
+      setVoidError(failure instanceof ApiError ? failure.message : (isID ? 'Invoice gagal dibatalkan.' : 'The invoice could not be voided.'));
+    } finally {
+      setBusyId(null);
+    }
   };
 
-  const handleResend = (inv: InvoiceSummaryResponse) =>
-    withBusy(inv.id, async () => { await adminApi.resendInvoice(inv.id); });
+  if (!allowed) {
+    if (authLoading) return <OperationsEmpty loading isID={isID} empty="" />;
+    return <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>{null}</AdminAccessGuard>;
+  }
 
-  const handleHistory = (inv: InvoiceSummaryResponse) => {
-    setHistoryFor(inv);
-    setHistory(null);
-    return withBusy(inv.id, async () => {
-      setHistory(await adminApi.invoiceHistory(inv.id));
-    });
+  const options = [{ value: '', label: isID ? 'Semua status' : 'All statuses' },
+    ...Object.entries(statusLabels).map(([value, labels]) => ({ value, label: labels[locale] }))];
+  const applySearch = (term: string) => {
+    const value = term.trim();
+    if (filters.search === value && filters.page === 0) { void refresh(); return; }
+    setFilters(current => ({ ...current, search: value, page: 0 }));
   };
+  const busy = busyId != null;
+  const listText = !loading && data
+    ? (isID ? `${rows.length} dari ${data.totalElements} invoice ditampilkan` : `Showing ${rows.length} of ${data.totalElements} invoices`)
+    : undefined;
 
   return (
-    <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>
-      <AdminPageShell
-        icon={FileText}
-        title={isID ? 'Invoice' : 'Invoices'}
-        subtitle={
-          isID
-            ? `Seluruh invoice sistem — unduh PDF, batalkan (void), kirim ulang, dan lihat riwayat status. ${totalElements} total.`
-            : `Every invoice in the system — download the PDF, void, resend, and inspect the status history. ${totalElements} total.`
-        }
-        endpoint="GET /api/admin/invoices"
-        isID={isID}
-        loading={loading}
-        error={error}
-        onRefresh={load}
-        filters={
+    <OperationsPage icon={FileText} title={isID ? 'Invoice' : 'Invoices'} image="/images/seed/hotels/plataran-borobudur.jpg"
+      description={isID ? 'Cari dokumen reservasi, unduh PDF, dan telusuri riwayat penerbitan.' : 'Find reservation documents, download PDFs, and review their history.'}
+      isID={isID} loading={loading} onRefresh={() => void refresh()} blocked={busy || !!voidTarget}>
+      <div className={operationPanel + ' flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4'}>
+        <form className="flex w-full min-w-0 items-center gap-2 sm:max-w-md" onSubmit={event => { event.preventDefault(); applySearch(search); }}>
+          <label className="relative min-w-0 flex-1">
+            <span className="sr-only">{isID ? 'Kode reservasi' : 'Reservation code'}</span>
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-600" aria-hidden />
+            <input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={isID ? 'Kode reservasi, mis. BK-…' : 'Reservation code, e.g. BK-…'} className={operationField + ' pl-9'} />
+          </label>
+          <button type="submit" disabled={busy} className={operationPrimary}>{isID ? 'Cari' : 'Search'}</button>
+          {filters.search && <button type="button" disabled={busy} onClick={() => { setSearch(''); applySearch(''); }} className={operationSecondary + ' w-11 px-0'} aria-label={isID ? 'Hapus pencarian' : 'Clear search'}><X className="size-4" aria-hidden /></button>}
+        </form>
+        <OperationsFilters label={isID ? 'Status invoice' : 'Invoice status'} items={options} value={filters.status} onChange={status => { if (!busy && status !== filters.status) setFilters(current => ({ ...current, status, page: 0 })); }} />
+      </div>
+
+      {error && <OperationsNotice>{error}</OperationsNotice>}
+      {notice && <OperationsNotice success={notice.success}>{notice.text}</OperationsNotice>}
+
+      <OperationsList
+        title={isID ? 'Daftar invoice' : 'Invoice list'} isID={isID} rows={rows} loading={loading} description={listText}
+        empty={error ? (isID ? 'Daftar invoice belum tersedia.' : 'The invoice list is unavailable.') : (isID ? 'Tidak ada invoice untuk filter ini.' : 'No invoices match this filter.')}
+        primary={{ label: isID ? 'Invoice / reservasi' : 'Invoice / reservation', render: row => <>
+          <p className="break-all font-mono text-xs font-bold text-navy-dark">{row.invoiceNumber}</p>
+          <p className="mt-0.5 break-all text-xs text-slate-600">{row.bookingCode}</p>
+        </> }}
+        columns={[
+          { label: isID ? 'Tamu' : 'Guest', render: row => <span className="font-medium text-slate-900">{row.customerName || '—'}</span> },
+          { label: 'Hotel', render: row => row.hotelName || '—' },
+          { label: isID ? 'Tanggal' : 'Date', render: row => operationDate(row.issuedAt || row.invoiceDate || row.createdAt, language) },
+          { label: 'Total', render: row => <span className="font-semibold text-navy-dark tabular-nums">{formatCurrency(row.totalAmount)}</span> },
+        ]}
+        status={row => <StatusPill status={row.status} label={statusLabels[row.status]?.[locale]} />}
+        actions={row => busyId === row.id ? <span role="status" className="flex min-h-11 items-center gap-2 text-xs text-slate-600"><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />{isID ? 'Memproses…' : 'Processing…'}</span> : (
           <>
-            <AdminFilterChips options={STATUS_OPTIONS(isID)} active={status} onChange={setStatus} />
-            <span className="w-px h-5 bg-slate-200" />
-            <form
-              onSubmit={(e) => { e.preventDefault(); setAppliedSearch(searchTerm.trim()); }}
-              className="flex items-center gap-1.5"
-            >
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder={isID ? 'Kode booking...' : 'Booking code...'}
-                  className="w-44 pl-8 pr-3 py-1.5 rounded-full border border-slate-200 text-[11px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-3 py-1.5 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold transition-colors cursor-pointer"
-              >
-                {isID ? 'Cari' : 'Search'}
-              </button>
-              {appliedSearch && (
-                <button
-                  type="button"
-                  onClick={() => { setSearchTerm(''); setAppliedSearch(''); }}
-                  className="p-1.5 rounded-full text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
-                  title={isID ? 'Hapus pencarian' : 'Clear search'}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </form>
-          </>
-        }
-      >
-        <AdminTableCard
-          isID={isID}
-          loading={loading}
-          isEmpty={invoices.length === 0}
-          emptyLabel={isID ? 'Tidak ada invoice untuk filter ini.' : 'No invoices match this filter.'}
-        >
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="px-4 py-3">{isID ? 'No. Invoice' : 'Invoice no.'}</th>
-                <th className="px-4 py-3">Booking</th>
-                <th className="px-4 py-3">{isID ? 'Tamu' : 'Guest'}</th>
-                <th className="px-4 py-3">Hotel</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 text-slate-700">
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-[11px] font-semibold text-slate-900">{inv.invoiceNumber}</td>
-                  <td className="px-4 py-3 text-slate-500">{inv.bookingCode}</td>
-                  <td className="px-4 py-3 text-slate-500 max-w-[160px] truncate">{inv.customerName}</td>
-                  <td className="px-4 py-3 text-slate-500 max-w-[160px] truncate">{inv.hotelName}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
-                    {formatCurrency(inv.totalAmount)}
-                  </td>
-                  <td className="px-4 py-3"><StatusPill status={inv.status} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1">
-                      {busyId === inv.id && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400 mr-1" />}
-                      <button
-                        onClick={() => handleDownload(inv)}
-                        disabled={busyId === inv.id}
-                        title={isID ? 'Unduh PDF' : 'Download PDF'}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer disabled:opacity-40"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleHistory(inv)}
-                        disabled={busyId === inv.id}
-                        title={isID ? 'Riwayat status' : 'Status history'}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer disabled:opacity-40"
-                      >
-                        <History className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleResend(inv)}
-                        disabled={busyId === inv.id}
-                        title={isID ? 'Kirim ulang ke email tamu' : 'Resend to guest email'}
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-teal-700 hover:bg-teal-50 transition-all cursor-pointer disabled:opacity-40"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                      {inv.status !== 'VOID' && (
-                        <button
-                          onClick={() => handleVoid(inv)}
-                          disabled={busyId === inv.id}
-                          title={isID ? 'Batalkan invoice' : 'Void invoice'}
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-700 hover:bg-rose-50 transition-all cursor-pointer disabled:opacity-40"
-                        >
-                          <Ban className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </AdminTableCard>
-
-        {/* Status history drawer */}
-        {historyFor && (
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-xs p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  {isID ? 'Riwayat Status' : 'Status History'} · {historyFor.invoiceNumber}
-                </h3>
-                <p className="text-[11px] text-slate-400 font-light font-mono mt-0.5">
-                  GET /api/admin/invoices/{historyFor.id}/history
-                </p>
-              </div>
-              <button
-                onClick={() => { setHistoryFor(null); setHistory(null); }}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {history === null ? (
-              <p className="text-xs text-slate-400 font-light flex items-center gap-2">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                {isID ? 'Memuat riwayat...' : 'Loading history...'}
-              </p>
-            ) : history.length === 0 ? (
-              <p className="text-xs text-slate-400 font-light">
-                {isID ? 'Belum ada peristiwa tercatat.' : 'No events recorded yet.'}
-              </p>
-            ) : (
-              <ol className="space-y-3">
-                {history.map((ev) => (
-                  <li key={ev.id} className="flex items-start gap-3 text-xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 mt-1.5 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-slate-800">{ev.eventType}</span>
-                        <StatusPill status={ev.fromStatus} />
-                        <span className="text-slate-300">→</span>
-                        <StatusPill status={ev.toStatus} />
-                        <span className="text-[10px] text-slate-400">
-                          {ev.createdAt?.replace('T', ' ').slice(0, 16)}
-                        </span>
-                      </div>
-                      {ev.message && (
-                        <p className="text-[11px] text-slate-500 font-light mt-0.5">{ev.message}</p>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ol>
+            <button type="button" disabled={busy || loading} onClick={() => download(row)} className={operationPrimary + ' text-xs'} aria-label={isID ? 'Unduh PDF' : 'Download PDF'}><Download className="size-4" aria-hidden />PDF</button>
+            <button type="button" disabled={busy || loading} onClick={() => setHistoryFor(row)} className={operationSecondary + ' text-xs'}><History className="size-4" aria-hidden />{isID ? 'Riwayat' : 'History'}</button>
+            {row.status === 'ISSUED' && (
+              <>
+                <button type="button" disabled={busy || loading} onClick={() => void runAction(row.id, async () => { await adminApi.resendInvoice(row.id); }, isID ? 'Permintaan kirim ulang diterima.' : 'Resend requested.')} className={operationSecondary + ' text-xs'}><Send className="size-4" aria-hidden />{isID ? 'Kirim ulang' : 'Resend'}</button>
+                <button type="button" disabled={busy || loading} onClick={() => { setVoidTarget(row); setReason(''); setVoidError(null); }} className={operationDanger + ' text-xs'}><Ban className="size-4" aria-hidden />{isID ? 'Batalkan' : 'Void'}</button>
+              </>
             )}
-          </div>
+          </>
         )}
-      </AdminPageShell>
-    </AdminAccessGuard>
+        footer={data && (data.totalPages > 1 || filters.page > 0) && (
+          <nav aria-label={isID ? 'Halaman invoice' : 'Invoice pages'} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium text-slate-600">{isID ? 'Halaman' : 'Page'} {filters.page + 1} / {Math.max(1, data.totalPages)}</span>
+            <div className="flex gap-2">
+              <button type="button" disabled={loading || busy || filters.page === 0} onClick={() => setFilters(current => ({ ...current, page: current.page - 1 }))} className={operationSecondary} aria-label={isID ? 'Halaman sebelumnya' : 'Previous page'}><ChevronLeft className="size-4" aria-hidden /></button>
+              <button type="button" disabled={loading || busy || filters.page + 1 >= data.totalPages} onClick={() => setFilters(current => ({ ...current, page: current.page + 1 }))} className={operationSecondary} aria-label={isID ? 'Halaman berikutnya' : 'Next page'}><ChevronRight className="size-4" aria-hidden /></button>
+            </div>
+          </nav>
+        )}
+      />
+
+      {historyFor && (
+        <OperationsDialog title={isID ? 'Riwayat invoice' : 'Invoice history'} description={historyFor.invoiceNumber} isID={isID} onClose={() => setHistoryFor(null)}>
+          {history.error ? (
+            <div className="space-y-3"><OperationsNotice>{history.error}</OperationsNotice><button type="button" onClick={() => void history.refresh()} className={operationSecondary}>{isID ? 'Coba lagi' : 'Try again'}</button></div>
+          ) : history.loading || !history.data?.length ? (
+            <OperationsEmpty isID={isID} loading={history.loading} empty={isID ? 'Belum ada perubahan status.' : 'No status changes recorded.'} />
+          ) : (
+            <ol className="space-y-3">
+              {history.data.map(event => (
+                <li key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+                  <time className="text-xs text-slate-600">{operationDate(event.createdAt, language)}</time>
+                  <p className="mt-1 break-words text-sm font-semibold text-navy-dark">{event.eventType.replaceAll('_', ' ')}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    {event.fromStatus && <><StatusPill status={event.fromStatus} label={statusLabels[event.fromStatus]?.[locale]} /><span aria-hidden>→</span></>}
+                    <StatusPill status={event.toStatus} label={event.toStatus ? statusLabels[event.toStatus]?.[locale] : undefined} />
+                  </div>
+                  {event.message && <p className="mt-2 break-words text-sm leading-5 text-slate-700">{event.message}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </OperationsDialog>
+      )}
+
+      {voidTarget && (
+        <OperationsDialog title={isID ? 'Batalkan invoice' : 'Void invoice'} description={voidTarget.invoiceNumber} isID={isID} busy={busy} onClose={() => setVoidTarget(null)}>
+          <form onSubmit={submitVoid} className="space-y-4">
+            <label className="block text-sm font-semibold">{isID ? 'Alasan pembatalan' : 'Reason for voiding'}
+              <textarea required maxLength={500} rows={3} value={reason} disabled={busy} onChange={event => setReason(event.target.value)} className={operationField + ' mt-1 resize-y'} />
+            </label>
+            {voidError && <OperationsNotice>{voidError}</OperationsNotice>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" disabled={busy} onClick={() => setVoidTarget(null)} className={operationSecondary}>{isID ? 'Kembali' : 'Back'}</button>
+              <button type="submit" disabled={busy || !reason.trim()} className={operationDanger}>{busy && <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />}{isID ? 'Batalkan invoice' : 'Void invoice'}</button>
+            </div>
+          </form>
+        </OperationsDialog>
+      )}
+    </OperationsPage>
   );
-};
+}

@@ -1,27 +1,14 @@
-import React from 'react';
-import { motion } from 'motion/react';
+import { useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, useReducedMotion } from 'motion/react';
 import {
-  X,
-  Download,
-  CheckCircle2,
-  Building2,
-  CalendarDays,
-  Clock,
-  MapPin,
-  ShieldCheck,
-  User,
-  Mail,
-  Loader2,
-  AlertCircle,
-  RotateCw,
-  ArrowUpRight,
-  Receipt,
-  Ticket,
-  ReceiptText
+  AlertCircle, CalendarDays, ChevronDown, CreditCard, Download, LoaderCircle,
+  MapPin, ReceiptText, RotateCw, Ticket, X,
 } from 'lucide-react';
-import { Booking, Language } from '../../types';
-import { InvoiceItemType } from '../../types/api';
+import type { Booking, Language } from '../../types';
+import type { InvoiceItemType, InvoiceResponse, InvoiceStatus } from '../../types/api';
 import { formatCurrency, formatDate } from '../../lib/utils';
+import { easeSmooth, fadeTween } from '../../lib/motion';
 import { useInvoice } from './useInvoice';
 import { InvoiceSkeleton } from './InvoiceSkeleton';
 import { applyImageFallback } from '../../lib/imageFallback';
@@ -32,379 +19,279 @@ interface InvoiceModalProps {
   language: Language;
 }
 
-const ITEM_TYPE_LABELS: Record<InvoiceItemType, { id: string; en: string }> = {
-  ROOM_NIGHT: { id: 'Kamar', en: 'Room' },
-  TAX: { id: 'Pajak', en: 'Tax' },
-  SERVICE_FEE: { id: 'Biaya Layanan', en: 'Service Fee' },
-  DISCOUNT: { id: 'Diskon', en: 'Discount' },
+const lineLabels: Record<InvoiceItemType, [string, string]> = {
+  ROOM_NIGHT: ['Kamar', 'Room'],
+  TAX: ['Pajak', 'Tax'],
+  SERVICE_FEE: ['Biaya layanan', 'Service fee'],
+  DISCOUNT: ['Diskon', 'Discount'],
 };
 
-const STATUS_CONFIG: Record<string, { bg: string; text: string; dot: string }> = {
-  ISSUED: { bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  DRAFT: { bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400' },
-  VOID: { bg: 'bg-rose-50', text: 'text-rose-700', dot: 'bg-rose-500' },
-  REFUNDED: { bg: 'bg-indigo-50', text: 'text-indigo-700', dot: 'bg-indigo-500' },
+type Badge = { labels: [string, string]; tone: string };
+const invoiceStatuses: Record<InvoiceStatus, Badge> = {
+  ISSUED: { labels: ['Diterbitkan', 'Issued'], tone: 'bg-white/10 text-white ring-white/25' },
+  DRAFT: { labels: ['Draf', 'Draft'], tone: 'bg-white/10 text-white ring-white/25' },
+  VOID: { labels: ['Dibatalkan', 'Voided'], tone: 'bg-rose-100 text-rose-800 ring-rose-200' },
+  REFUNDED: { labels: ['Dikembalikan', 'Refunded'], tone: 'bg-violet-100 text-violet-800 ring-violet-200' },
 };
+const paymentStatuses: Record<Booking['paymentStatus'], Badge> = {
+  paid: { labels: ['Lunas', 'Paid'], tone: 'bg-emerald-50 text-emerald-800 ring-emerald-200' },
+  unpaid: { labels: ['Belum dibayar', 'Unpaid'], tone: 'bg-amber-50 text-amber-900 ring-amber-200' },
+  pending: { labels: ['Menunggu pembayaran', 'Payment pending'], tone: 'bg-amber-50 text-amber-900 ring-amber-200' },
+  failed: { labels: ['Pembayaran gagal', 'Payment failed'], tone: 'bg-rose-50 text-rose-800 ring-rose-200' },
+  expired: { labels: ['Kedaluwarsa', 'Expired'], tone: 'bg-slate-100 text-slate-700 ring-slate-200' },
+  cancelled: { labels: ['Dibatalkan', 'Cancelled'], tone: 'bg-slate-100 text-slate-700 ring-slate-200' },
+  refunded: { labels: ['Dana dikembalikan', 'Refunded'], tone: 'bg-violet-50 text-violet-800 ring-violet-200' },
+};
+const cardClass = 'min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5';
+const buttonClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed';
+const primaryButton = buttonClass + ' bg-navy-dark text-white hover:bg-navy disabled:bg-slate-100 disabled:text-slate-600';
+const neutralButton = buttonClass + ' border border-slate-200 bg-white text-navy-dark hover:bg-navy-soft disabled:opacity-60';
 
-export const InvoiceModal: React.FC<InvoiceModalProps> = ({ booking, onClose, language }) => {
+function InvoiceCharges({ invoice, isID, money }: { invoice: InvoiceResponse; isID: boolean; money: (amount: number) => string }) {
+  const rows = [
+    { label: 'Subtotal', amount: invoice.subtotalAmount },
+    ...(invoice.taxAmount > 0 ? [{ label: isID ? 'Pajak' : 'Tax', amount: invoice.taxAmount }] : []),
+    ...(invoice.serviceFeeAmount > 0 ? [{ label: isID ? 'Biaya layanan' : 'Service fee', amount: invoice.serviceFeeAmount }] : []),
+    ...(invoice.discountAmount > 0 ? [{ label: isID ? 'Diskon' : 'Discount', amount: -invoice.discountAmount }] : []),
+  ];
+  return (
+    <section className={cardClass}>
+      <h3 className="text-base font-semibold text-navy-dark">{isID ? 'Rincian biaya' : 'Cost breakdown'}</h3>
+      <dl className="mt-3 divide-y divide-slate-100">
+        {rows.map(row => (
+          <div key={row.label} className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+            <dt className="text-slate-600">{row.label}</dt>
+            <dd className={`min-w-0 break-words text-right font-semibold tabular-nums ${row.amount < 0 ? 'text-emerald-800' : 'text-slate-900'}`}>{money(row.amount)}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-1 flex items-baseline justify-between gap-3 rounded-lg bg-navy-soft/55 px-3 py-2.5 text-sm">
+        <span className="font-semibold text-navy-dark">Total</span>
+        <span className="min-w-0 break-words text-right font-bold text-navy-dark tabular-nums">{money(invoice.totalAmount)}</span>
+      </div>
+      {invoice.items?.length > 0 && (
+        <details className="group mt-3 border-t border-slate-200 pt-1.5">
+          <summary tabIndex={0} className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-md text-sm font-semibold text-navy [&::-webkit-details-marker]:hidden">
+            {isID ? 'Lihat item invoice' : 'View invoice items'}
+            <ChevronDown className="size-4 shrink-0 motion-safe:transition-transform group-open:rotate-180" aria-hidden />
+          </summary>
+          <ul className="divide-y divide-slate-100">
+            {invoice.items.map(item => (
+              <li key={item.id} className="flex justify-between gap-3 py-2.5 text-sm">
+                <div className="min-w-0">
+                  <p className="break-words font-semibold text-slate-800">{lineLabels[item.itemType]?.[isID ? 0 : 1] ?? item.itemType}{item.quantity > 1 && <span className="font-normal text-slate-600"> × {item.quantity}</span>}</p>
+                  {item.description && <p className="mt-0.5 break-words text-xs leading-5 text-slate-600">{item.description}</p>}
+                </div>
+                <span className={`text-right font-medium tabular-nums ${item.amount < 0 ? 'text-emerald-800' : 'text-slate-800'}`}>{money(item.amount)}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
+export function InvoiceModal({ booking, onClose, language }: InvoiceModalProps) {
   const isID = language === 'ID';
-  const {
-    invoice, loading, notFound, error, downloading, downloadError, reload, downloadPdf,
-  } = useInvoice(booking, isID);
+  const reduceMotion = useReducedMotion();
+  const { invoice, loading, notFound, error, downloading, downloadError, reload, downloadPdf } = useInvoice(booking, isID);
+  const open = Boolean(booking);
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const downloadRef = useRef<HTMLButtonElement>(null);
+  const dialogState = useRef({ downloading, onClose });
+  dialogState.current = { downloading, onClose };
+
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus({ preventScroll: true });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (!dialogState.current.downloading) dialogState.current.onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], summary, [tabindex="0"]') ?? [])
+        .filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (!first || !last) {
+        event.preventDefault();
+        panelRef.current?.focus();
+      } else {
+        const activeElement = document.activeElement as HTMLElement | null;
+        const outsideControls = !activeElement || !controls.includes(activeElement);
+        if (event.shiftKey && (activeElement === first || outsideControls)) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (activeElement === last || outsideControls)) { event.preventDefault(); first.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.body.style.overflow = previousOverflow;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && downloading) panelRef.current?.focus({ preventScroll: true });
+    else if (open && document.activeElement === panelRef.current) {
+      (downloadRef.current && !downloadRef.current.disabled ? downloadRef.current : closeRef.current)?.focus({ preventScroll: true });
+    }
+  }, [open, downloading]);
 
   if (!booking) return null;
 
-  const statusConfig = invoice ? (STATUS_CONFIG[invoice.status] || STATUS_CONFIG.DRAFT) : null;
-  const issuedOn = invoice?.issuedAt || invoice?.createdAt;
-  const isConfirmedBooking = ['confirmed', 'checked-in', 'completed'].includes(booking.status);
+  const dismiss = () => { if (!dialogState.current.downloading) dialogState.current.onClose(); };
+  const currency = invoice?.currency?.toUpperCase();
+  const money = currency && currency !== 'IDR' && /^[A-Z]{3}$/.test(currency)
+    ? new Intl.NumberFormat(isID ? 'id-ID' : 'en-US', { style: 'currency', currency }).format
+    : formatCurrency;
+  const paymentStatus = invoice?.status === 'REFUNDED' ? 'refunded'
+    : invoice?.status === 'ISSUED' && invoice.paidAt && ['pending', 'unpaid'].includes(booking.paymentStatus) ? 'paid'
+      : booking.paymentStatus;
+  const paymentBadge = paymentStatuses[paymentStatus];
+  const invoiceBadge = invoice && invoiceStatuses[invoice.status];
+  const invoiceDate = invoice?.issuedAt || invoice?.invoiceDate || invoice?.createdAt;
+  const nights = invoice?.nightsCount ?? booking.nights;
 
-  return (
+  return createPortal(
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      initial="enter" animate="open" exit="exit"
+      className="fixed inset-0 z-[80] flex items-end justify-center p-2 sm:items-center sm:p-5"
+      onClick={event => { if (event.target === event.currentTarget) dismiss(); }}
+      data-invoice-modal
     >
       <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 12, scale: 0.98 }}
-        transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-        className="bg-white rounded-2xl max-w-lg w-full shadow-[0_24px_60px_rgba(15,23,42,0.18)] border border-slate-100 overflow-hidden relative max-h-[92vh] flex flex-col my-auto"
+        aria-hidden onClick={dismiss}
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[3px]"
+        variants={{ enter: { opacity: 0 }, open: { opacity: 1 }, exit: { opacity: 0 } }}
+        transition={reduceMotion ? { duration: 0 } : fadeTween}
+      />
+      <motion.div
+        ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={loading || downloading} tabIndex={-1}
+        variants={{
+          enter: { y: reduceMotion ? 0 : 14, scale: reduceMotion ? 1 : 0.99 },
+          open: { y: 0, scale: 1, opacity: 1 },
+          exit: { y: reduceMotion ? 0 : 8, opacity: 0 },
+        }}
+        transition={{ duration: reduceMotion ? 0 : 0.22, ease: easeSmooth }}
+        className="invoice-dialog relative flex max-h-[calc(100dvh-1rem)] w-full max-w-[800px] flex-col overflow-hidden rounded-[22px] border border-white/70 bg-white text-slate-800 shadow-[0_28px_90px_rgba(8,24,54,0.3)] outline-none sm:max-h-[calc(100dvh-2.5rem)] sm:rounded-[26px]"
       >
-        {/* Hairline accent */}
-        <div className="h-1 w-full bg-gradient-to-r from-transparent via-slate-200 to-transparent shrink-0" />
-
-        {/* ===== Header ===== */}
-        <header className="relative px-5 py-4 border-b border-slate-100 overflow-hidden shrink-0">
-          <span className="absolute -right-2 -top-6 font-serif italic text-[80px] leading-none text-slate-900/[0.03] select-none pointer-events-none">
-            Inv
-          </span>
-
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-xl bg-slate-950 text-white flex items-center justify-center shadow-md shadow-slate-950/15 shrink-0">
-                <Receipt className="w-4 h-4" />
-              </span>
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
-                  {invoice
-                    ? (isID ? 'Struk Resmi' : 'Official Receipt')
-                    : (isID ? 'Dokumen Reservasi' : 'Booking Document')}
-                </p>
-                <h3 className="font-serif text-lg text-slate-950 tracking-tight leading-tight mt-0.5">
-                  {invoice ? invoice.invoiceNumber : `${isID ? 'Booking' : 'Booking'} ${booking.bookingCode}`}
-                </h3>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {statusConfig && (
-                <span className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${statusConfig.bg} ${statusConfig.text} ${statusConfig.bg.replace('bg-', 'border-').replace('50', '100')}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                  {invoice?.status}
-                </span>
-              )}
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors flex items-center justify-center border border-slate-100"
-                aria-label={isID ? 'Tutup' : 'Close'}
-              >
-                <X className="w-4 h-4" />
-              </button>
+        <header className="relative shrink-0 overflow-hidden border-t-2 border-gold-light bg-[#14264d] bg-[radial-gradient(ellipse_at_left_top,#233d74_0%,transparent_70%)] px-4 py-4 text-white sm:px-6 sm:py-5">
+          <div className="flex items-start gap-3 pr-12">
+            <span className="grid size-10 shrink-0 place-items-center rounded-xl border border-white/15 bg-white/10 text-gold-light sm:size-11"><ReceiptText className="size-5" aria-hidden /></span>
+            <div className="min-w-0">
+              <h2 id={titleId} className="font-serif text-[1.65rem] leading-none tracking-tight sm:text-[2rem]">Invoice</h2>
+              <code className="mt-1.5 block min-w-0 break-all font-mono text-xs text-white/85">{invoice?.invoiceNumber || booking.bookingCode}</code>
             </div>
           </div>
-
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 font-light">
-            <span className="inline-flex items-center gap-1.5">
-              <Ticket className="w-3.5 h-3.5 text-slate-300" />
-              <code className="font-mono font-semibold text-slate-500">{booking.bookingCode}</code>
-            </span>
-            {issuedOn && (
-              <span className="inline-flex items-center gap-1.5">
-                <CalendarDays className="w-3.5 h-3.5 text-slate-300" />
-                {isID ? 'Diterbitkan' : 'Issued'} · {formatDate(issuedOn, language)}
-              </span>
-            )}
-          </div>
+          <button ref={closeRef} type="button" onClick={dismiss} disabled={downloading} aria-label={isID ? 'Tutup invoice' : 'Close invoice'} className="absolute top-3 right-3 grid size-11 cursor-pointer place-items-center rounded-xl border border-white/20 text-white transition-colors hover:bg-white/15 disabled:cursor-wait disabled:opacity-60 sm:top-4 sm:right-5">
+            <X className="size-5" aria-hidden />
+          </button>
+          {invoice && (
+            <div className="mt-3 flex flex-wrap items-center gap-2.5 text-xs text-white/85">
+              {invoiceBadge && <span className={`rounded-full px-2.5 py-1 font-semibold ring-1 ring-inset ${invoiceBadge.tone}`}>{invoiceBadge.labels[isID ? 0 : 1]}</span>}
+              {invoiceDate && <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5 text-gold-light" aria-hidden />{invoice.issuedAt ? (isID ? 'Terbit ' : 'Issued ') : ''}{formatDate(invoiceDate, language)}</span>}
+            </div>
+          )}
         </header>
 
-        {/* ===== Body ===== */}
-        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
-          {/* Hotel & guest summary */}
-          <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-[0_2px_12px_rgba(15,23,42,0.03)]">
-            <div className="flex items-start gap-4">
-              <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 ring-1 ring-slate-100 shrink-0">
-                <img
-                  src={booking.hotelImage}
-                  alt={booking.hotelName}
-                  onError={applyImageFallback}
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <div className="flex-1 min-w-0 space-y-1">
-                <h2 className="font-serif text-lg text-slate-950 tracking-tight leading-snug truncate">
-                  {booking.hotelName}
-                </h2>
-                <div className="flex items-center gap-1.5 text-[12px] text-slate-400 font-light truncate">
-                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span className="truncate">{booking.hotelAddress}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[12px] text-slate-500 font-light truncate">
-                  <Building2 className="w-3 h-3 text-slate-400 shrink-0" />
-                  <span className="truncate">
-                    {booking.roomType}
-                    {booking.bedType && ` · ${booking.bedType}`}
-                  </span>
-                </div>
-              </div>
+        <div role="region" aria-label={isID ? 'Isi invoice' : 'Invoice content'} tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50/80 px-3 py-3 sm:px-5 sm:py-5">
+          <section className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-gold-soft bg-[#fcf8ee] px-4 py-3.5 sm:mb-4 sm:px-5 sm:py-4">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-700">{invoice ? 'Total invoice' : isID ? 'Total reservasi' : 'Reservation total'}</p>
+              <p className="mt-1 break-words text-[clamp(1.25rem,5vw,1.9rem)] font-bold leading-tight tracking-tight text-navy-dark tabular-nums">{money(invoice?.totalAmount ?? booking.totalPrice)}</p>
             </div>
-
-            <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50/70 border border-slate-100/80">
-                <span className="w-7 h-7 rounded-lg bg-white border border-slate-100 flex items-center justify-center shrink-0">
-                  <User className="w-3.5 h-3.5 text-slate-400" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
-                    {isID ? 'Nama Tamu' : 'Guest'}
-                  </p>
-                  <p className="text-[12px] font-semibold text-slate-800 truncate">
-                    {booking.guestName}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2.5 p-2 rounded-xl bg-slate-50/70 border border-slate-100/80">
-                <span className="w-7 h-7 rounded-lg bg-white border border-slate-100 flex items-center justify-center shrink-0">
-                  <Mail className="w-3.5 h-3.5 text-slate-400" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
-                    Email
-                  </p>
-                  <p className="text-[12px] font-semibold text-slate-800 truncate">
-                    {booking.guestEmail}
-                  </p>
-                </div>
-              </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+              {paymentBadge && <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${paymentBadge.tone}`}>{paymentBadge.labels[isID ? 0 : 1]}</span>}
+              {invoice?.paymentMethod && <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"><CreditCard className="size-4 text-navy" aria-hidden />{invoice.paymentMethod}</span>}
             </div>
           </section>
 
-          {/* Stay summary */}
-          <section className="grid grid-cols-3 gap-0 rounded-2xl border border-slate-100 overflow-hidden divide-x divide-slate-100">
-            <div className="p-3 text-center space-y-0.5 bg-white">
-              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">
-                {isID ? 'Check-in' : 'Check-in'}
-              </span>
-              <span className="text-[13px] font-semibold text-slate-900 block truncate">
-                {formatDate(booking.checkIn, language)}
-              </span>
-              <span className="text-[10px] text-slate-400 font-light flex items-center justify-center gap-1">
-                <Clock className="w-3 h-3" />
-                14:00
-              </span>
-            </div>
-            <div className="p-3 text-center flex flex-col items-center justify-center bg-slate-50/50">
-              <span className="px-2.5 py-0.5 rounded-full bg-white border border-slate-100 text-[10px] font-bold text-slate-600 shadow-2xs">
-                {booking.nights} {isID ? 'malam' : 'nights'}
-              </span>
-            </div>
-            <div className="p-3 text-center space-y-0.5 bg-white">
-              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">
-                {isID ? 'Check-out' : 'Check-out'}
-              </span>
-              <span className="text-[13px] font-semibold text-slate-900 block truncate">
-                {formatDate(booking.checkOut, language)}
-              </span>
-              <span className="text-[10px] text-slate-400 font-light flex items-center justify-center gap-1">
-                <Clock className="w-3 h-3" />
-                12:00
-              </span>
-            </div>
-          </section>
+          {invoice?.status === 'VOID' && invoice.voidReason && (
+            <p className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm leading-5 text-rose-800"><AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />{invoice.voidReason}</p>
+          )}
 
-          {/* Invoice data */}
-          {loading ? (
-            <InvoiceSkeleton />
-          ) : notFound ? (
-            <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 text-center space-y-3">
-              <div className="w-11 h-11 rounded-xl bg-white border border-slate-100 flex items-center justify-center mx-auto shadow-2xs">
-                <ReceiptText className="w-5 h-5 text-slate-300" />
-              </div>
-              <div>
-                <p className="text-[14px] font-semibold text-slate-700">
-                  {isID ? 'Invoice belum tersedia' : 'Invoice not available yet'}
-                </p>
-                <p className="text-[12px] text-slate-400 font-light max-w-sm mx-auto mt-1 leading-relaxed">
-                  {booking.paymentStatus !== 'paid'
-                    ? (isID
-                        ? 'Invoice akan tersedia setelah pembayaran dikonfirmasi.'
-                        : 'Invoice will be available once payment is confirmed.')
-                    : (isID
-                        ? 'Invoice sedang diproses. Coba periksa lagi nanti.'
-                        : 'Invoice is being generated. Please check again shortly.')}
-                </p>
-              </div>
-              <button
-                onClick={reload}
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-700 hover:text-slate-900 transition-colors"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                {isID ? 'Muat ulang' : 'Reload'}
-              </button>
-            </div>
-          ) : error ? (
-            <div className="p-6 rounded-2xl bg-rose-50 border border-rose-100 text-center space-y-3">
-              <div className="w-11 h-11 rounded-xl bg-white border border-rose-100 flex items-center justify-center mx-auto shadow-2xs">
-                <AlertCircle className="w-5 h-5 text-rose-400" />
-              </div>
-              <div>
-                <p className="text-[14px] font-semibold text-rose-700">
-                  {isID ? 'Gagal memuat invoice' : 'Failed to load the invoice'}
-                </p>
-                <p className="text-[12px] text-rose-500/80 font-light mt-1">{error}</p>
-              </div>
-              <button
-                onClick={reload}
-                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-rose-700 hover:text-rose-900 transition-colors"
-              >
-                <RotateCw className="w-3.5 h-3.5" />
-                {isID ? 'Coba lagi' : 'Try again'}
-              </button>
-            </div>
-          ) : invoice ? (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-[10px] font-semibold text-slate-400 uppercase tracking-[0.12em]">
-                  {isID ? 'Rincian Pembayaran' : 'Payment Details'}
-                </h4>
-                {statusConfig && (
-                  <span className={`sm:hidden inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${statusConfig.bg} ${statusConfig.text} ${statusConfig.bg.replace('bg-', 'border-').replace('50', '100')}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
-                    {invoice.status}
-                  </span>
-                )}
-              </div>
-
-              {/* Itemized lines */}
-              <div className="rounded-2xl border border-slate-100 divide-y divide-slate-50 overflow-hidden text-[12px]">
-                {invoice.items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between px-4 py-2.5 hover:bg-slate-50/30 transition-colors">
-                    <div className="min-w-0">
-                      <span className="font-medium text-slate-700 block truncate">
-                        {isID ? ITEM_TYPE_LABELS[item.itemType].id : ITEM_TYPE_LABELS[item.itemType].en}
-                        {item.quantity > 1 && (
-                          <span className="text-slate-300 font-light"> · {item.quantity}x</span>
-                        )}
-                      </span>
-                      {item.description && (
-                        <span className="text-[11px] text-slate-400 font-light block truncate">{item.description}</span>
-                      )}
-                    </div>
-                    <span className={`font-semibold shrink-0 ml-3 ${item.amount < 0 ? 'text-emerald-600' : 'text-slate-900'}`}>
-                      {formatCurrency(item.amount)}
-                    </span>
-                  </div>
-                ))}
-
-                {/* Summary */}
-                <div className="px-4 py-2.5 space-y-1 bg-slate-50/40 text-[11px]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-400 font-light">{isID ? 'Subtotal' : 'Subtotal'}</span>
-                    <span className="font-medium text-slate-600">{formatCurrency(invoice.subtotalAmount)}</span>
-                  </div>
-                  {invoice.taxAmount > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 font-light">{isID ? 'Pajak' : 'Tax'}</span>
-                      <span className="font-medium text-slate-600">{formatCurrency(invoice.taxAmount)}</span>
-                    </div>
-                  )}
-                  {invoice.serviceFeeAmount > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 font-light">{isID ? 'Biaya Layanan' : 'Service Fee'}</span>
-                      <span className="font-medium text-slate-600">{formatCurrency(invoice.serviceFeeAmount)}</span>
-                    </div>
-                  )}
-                  {invoice.discountAmount > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400 font-light">{isID ? 'Diskon' : 'Discount'}</span>
-                      <span className="font-semibold text-emerald-600">-{formatCurrency(invoice.discountAmount)}</span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="px-4 py-3 bg-slate-50 flex items-center justify-between">
-                  <span className="text-[12px] font-semibold text-slate-700">{isID ? 'Total' : 'Total'}</span>
-                  <span className="font-serif text-xl font-semibold text-slate-950 tracking-tight">
-                    {formatCurrency(invoice.totalAmount)}
-                  </span>
+          <div className="grid items-start gap-3 sm:gap-4 min-[680px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <section className={cardClass}>
+              <h3 className="text-base font-semibold text-navy-dark">{isID ? 'Detail reservasi' : 'Reservation details'}</h3>
+              <div className="mt-3 flex items-start gap-3">
+                {booking.hotelImage && <img src={booking.hotelImage} alt="" onError={applyImageFallback} className="size-13 shrink-0 rounded-xl bg-navy-soft object-cover sm:size-14" />}
+                <div className="min-w-0">
+                  <p className="break-words font-semibold leading-snug text-navy-dark">{invoice?.hotelName || booking.hotelName}</p>
+                  <p className="mt-0.5 break-words text-xs leading-5 text-slate-600">{invoice?.roomName || booking.roomType}</p>
+                  {booking.hotelAddress && <p className="mt-1 flex items-start gap-1 text-xs leading-4 text-slate-600"><MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden />{booking.hotelAddress}</p>}
                 </div>
               </div>
-
-              <div className="flex items-center justify-between text-[11px] px-1">
-                <span className="text-slate-400 font-light">{isID ? 'Metode Pembayaran' : 'Payment Method'}</span>
-                <span className="font-medium text-slate-700">{invoice.paymentMethod || '—'}</span>
+              <dl className="mt-4 grid grid-cols-2 gap-x-2 gap-y-3 border-t border-slate-200 pt-3 text-sm">
+                <div>
+                  <dt className="text-xs text-slate-600">Check-in</dt>
+                  <dd className="mt-0.5 font-medium text-slate-900">{formatDate(invoice?.checkInDate || booking.checkIn, language)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-slate-600">Check-out</dt>
+                  <dd className="mt-0.5 font-medium text-slate-900">{formatDate(invoice?.checkOutDate || booking.checkOut, language)}</dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-xs text-slate-600">{isID ? 'Tamu' : 'Guest'}</dt>
+                  <dd className="mt-0.5 break-words font-medium text-slate-900">{invoice?.customerName || booking.guestName || '—'}</dd>
+                  {(invoice?.customerEmail || booking.guestEmail) && <dd className="break-all text-xs text-slate-600">{invoice?.customerEmail || booking.guestEmail}</dd>}
+                </div>
+              </dl>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2.5 text-xs text-slate-600">
+                <span className="flex min-w-0 items-center gap-1.5"><Ticket className="size-4 shrink-0 text-navy" aria-hidden /><span className="sr-only">{isID ? 'Kode reservasi' : 'Reservation code'}</span><code className="break-all font-mono font-semibold text-navy-dark">{booking.bookingCode}</code></span>
+                <span>{nights} {isID ? 'malam' : nights === 1 ? 'night' : 'nights'}</span>
               </div>
-
-              {downloadError && (
-                <p className="text-[11px] text-rose-600 text-center font-medium">{downloadError}</p>
-              )}
             </section>
-          ) : null}
 
-          {/* Check-in instructions */}
-          <div className="p-3.5 rounded-2xl border border-slate-100 bg-slate-50/50 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="w-6 h-6 rounded-md bg-white border border-slate-100 flex items-center justify-center shadow-2xs">
-                <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
-              </span>
-              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                {isID ? 'Instruksi Check-in' : 'Check-in Instructions'}
-              </span>
-            </div>
-            <p className="text-[12px] text-slate-600 font-light leading-relaxed pl-8">
-              {isID
-                ? `Tunjukkan kode booking Anda kepada resepsionis saat tiba di hotel: `
-                : `Present your booking code to the receptionist upon arrival: `}
-              <code className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-900 font-mono text-[11px] font-semibold">
-                {booking.bookingCode}
-              </code>
-            </p>
+            {loading ? <InvoiceSkeleton isID={isID} /> : invoice ? (
+              <InvoiceCharges invoice={invoice} isID={isID} money={money} />
+            ) : (
+              <section className={cardClass + ' space-y-3'} role={error ? 'alert' : 'status'}>
+                <span className={`grid size-10 place-items-center rounded-xl ${error ? 'bg-rose-50 text-rose-700' : 'bg-navy-soft text-navy'}`}>
+                  {error ? <AlertCircle className="size-5" aria-hidden /> : <ReceiptText className="size-5" aria-hidden />}
+                </span>
+                <div>
+                  <h3 className="text-base font-semibold text-navy-dark">
+                    {error ? (isID ? 'Invoice gagal dimuat' : 'The invoice could not be loaded') : (isID ? 'Invoice belum tersedia' : 'Invoice not available')}
+                  </h3>
+                  <p className="mt-1 break-words text-sm leading-6 text-slate-600">
+                    {error || (notFound && (paymentStatus === 'unpaid' || paymentStatus === 'pending')
+                      ? (isID ? 'Invoice terbit setelah pembayaran dikonfirmasi.' : 'The invoice is issued after payment is confirmed.')
+                      : paymentStatus === 'paid'
+                        ? (isID ? 'Pembayaran tercatat. Muat ulang untuk memeriksa apakah invoice sudah terbit.' : 'Payment is recorded. Reload to check whether the invoice has been issued.')
+                        : (isID ? 'Belum ada invoice untuk reservasi ini.' : 'This reservation has no invoice yet.'))}
+                  </p>
+                </div>
+                <button type="button" onClick={reload} className={neutralButton}><RotateCw className="size-4" aria-hidden />{error ? (isID ? 'Coba lagi' : 'Try again') : (isID ? 'Muat ulang' : 'Reload')}</button>
+              </section>
+            )}
           </div>
         </div>
 
-        {/* ===== Footer ===== */}
-        <div className="px-5 py-3.5 bg-white border-t border-slate-100 flex flex-row items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-light">
-            <span className={`w-4 h-4 rounded-md flex items-center justify-center ${isConfirmedBooking ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-              {isConfirmedBooking
-                ? <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                : <Clock className="w-3 h-3 text-amber-600" />}
-            </span>
-            {isConfirmedBooking
-              ? (isID ? 'Pemesanan terkonfirmasi' : 'Booking confirmed')
-              : `${isID ? 'Status pemesanan' : 'Booking status'}: ${booking.status.replace(/-/g, ' ')}`}
-          </div>
-
-          <div className="flex items-center gap-2">
+        <footer className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-3 py-3 sm:px-5">
+          {downloadError && <p role="alert" className="flex items-start gap-2 break-words rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"><AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />{downloadError}</p>}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={dismiss} disabled={downloading} className={neutralButton + ' cursor-pointer'}>{isID ? 'Tutup' : 'Close'}</button>
             <button
-              onClick={downloadPdf}
-              disabled={!invoice || downloading}
-              className="py-2 px-3 rounded-xl border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 hover:bg-slate-50 text-[12px] font-semibold transition-all flex items-center justify-center gap-1.5 disabled:opacity-30"
+              ref={downloadRef} type="button" onClick={() => void downloadPdf()} disabled={!invoice || loading || downloading} aria-busy={downloading}
+              className={primaryButton + ' flex-1 cursor-pointer sm:min-w-36 sm:flex-none'}
             >
-              {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-              <span>{isID ? 'Unduh PDF' : 'Download PDF'}</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="py-2 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-white text-[12px] font-semibold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-slate-950/10 active:scale-[0.97]"
-            >
-              {isID ? 'Selesai' : 'Done'}
-              <ArrowUpRight className="w-3.5 h-3.5 opacity-60" />
+              {downloading ? <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
+              {downloading ? (isID ? 'Mengunduh…' : 'Downloading…') : (isID ? 'Unduh PDF' : 'Download PDF')}
             </button>
           </div>
-        </div>
+        </footer>
       </motion.div>
-    </motion.div>
+    </motion.div>,
+    document.body,
   );
-};
+}

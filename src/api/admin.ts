@@ -3,7 +3,7 @@ import { Role } from '../types/api/auth';
 import { BookingCancellationResponse, BookingResponse, CancellationStatus } from '../types/api/booking';
 import {
   CreateFacilityRequest, CreateHotelRequest, FacilityResponse, HotelImageResponse,
-  HotelResponse, UpdateFacilityRequest, UpdateHotelRequest
+  HotelResponse, HotelStatus, PropertyType, UpdateFacilityRequest, UpdateHotelRequest
 } from '../types/api/hotel';
 import {
   AmenityResponse, CreateAmenityRequest, CreateRoomCompositionRequest, CreateRoomPolicyRequest,
@@ -16,6 +16,8 @@ import {
 } from '../types/api/room';
 import {
   CreateNotificationTemplateRequest,
+  NotificationChannel,
+  NotificationEventType,
   NotificationResponse,
   NotificationTemplateResponse,
   SendNotificationRequest,
@@ -133,8 +135,8 @@ export const adminApi = {
   deleteReview: (id: number) => http.delete<void>(`${REVIEW_ADMIN_BASE}/${id}`),
 
   // ---- Hotels (hotel-service /api/admin/hotels) ----
-  listHotels: (page = 0, size = 50) =>
-    http.get<PagedResponse<HotelResponse>>(`${HOTEL_ADMIN_BASE}${buildQuery({ page, size })}`),
+  listHotels: (page = 0, size = 50, filters: { keyword?: string; status?: HotelStatus; propertyType?: PropertyType } = {}) =>
+    http.get<PagedResponse<HotelResponse>>(`${HOTEL_ADMIN_BASE}${buildQuery({ page, size, ...filters })}`),
   getHotel: (id: number) => http.get<HotelResponse>(`${HOTEL_ADMIN_BASE}/${id}`),
   createHotel: (payload: CreateHotelRequest) => http.post<HotelResponse>(HOTEL_ADMIN_BASE, payload),
   updateHotel: (id: number, payload: UpdateHotelRequest) =>
@@ -249,9 +251,9 @@ export const adminApi = {
 
   // ---- Notifications (notification-service) ----
   // Like invoice-service, this one returns a raw Spring Data Page.
-  searchNotifications: (page = 0, size = 50) =>
+  searchNotifications: (page = 0, size = 50, filters: { userId?: number; type?: NotificationEventType; channel?: NotificationChannel } = {}) =>
     http.get<SpringPage<NotificationResponse>>(
-      `${SERVICE.notification}/api/admin/notifications${buildQuery({ page, size })}`
+      `${SERVICE.notification}/api/admin/notifications${buildQuery({ page, size, ...filters })}`
     ),
   sendNotification: (payload: SendNotificationRequest) =>
     http.post<void>(`${SERVICE.notification}/api/admin/notifications/send`, payload),

@@ -11,6 +11,7 @@ export interface HeaderNavItem {
   icon: LucideIcon;
   badge: string | number | null;
   badgeColor?: string;
+  section?: 'operations' | 'finance' | 'management';
 }
 
 export interface NavItemsOptions {
@@ -27,15 +28,15 @@ export interface NavItemsOptions {
  */
 function getAdminNavItems(isID: boolean): HeaderNavItem[] {
   return [
-    { path: ADMIN_PATHS.dashboard, label: isID ? 'Dasbor' : 'Dashboard', icon: LayoutDashboard, badge: null },
-    { path: ADMIN_PATHS.checkIn, label: 'Check-In', icon: UserCheck, badge: null },
-    { path: ADMIN_PATHS.housekeeping, label: 'Housekeeping', icon: ClipboardCheck, badge: null },
-    { path: ADMIN_PATHS.invoices, label: isID ? 'Invoice' : 'Invoices', icon: FileText, badge: null },
-    { path: ADMIN_PATHS.payments, label: isID ? 'Pembayaran' : 'Payments', icon: CreditCard, badge: null },
-    { path: ADMIN_PATHS.reviews, label: isID ? 'Ulasan' : 'Reviews', icon: Star, badge: null },
-    { path: ADMIN_PATHS.hotels, label: isID ? 'Properti' : 'Properties', icon: Building2, badge: null },
-    { path: ADMIN_PATHS.masterData, label: isID ? 'Master' : 'Master', icon: Database, badge: null },
-    { path: ADMIN_PATHS.notifications, label: isID ? 'Notifikasi' : 'Notifications', icon: Bell, badge: null },
+    { path: ADMIN_PATHS.dashboard, label: isID ? 'Dasbor' : 'Dashboard', icon: LayoutDashboard, badge: null, section: 'operations' },
+    { path: ADMIN_PATHS.checkIn, label: 'Check-In', icon: UserCheck, badge: null, section: 'operations' },
+    { path: ADMIN_PATHS.housekeeping, label: 'Housekeeping', icon: ClipboardCheck, badge: null, section: 'operations' },
+    { path: ADMIN_PATHS.invoices, label: isID ? 'Invoice' : 'Invoices', icon: FileText, badge: null, section: 'finance' },
+    { path: ADMIN_PATHS.payments, label: isID ? 'Pembayaran' : 'Payments', icon: CreditCard, badge: null, section: 'finance' },
+    { path: ADMIN_PATHS.reviews, label: isID ? 'Ulasan' : 'Reviews', icon: Star, badge: null, section: 'management' },
+    { path: ADMIN_PATHS.hotels, label: isID ? 'Properti' : 'Properties', icon: Building2, badge: null, section: 'management' },
+    { path: ADMIN_PATHS.masterData, label: isID ? 'Data Master' : 'Master Data', icon: Database, badge: null, section: 'management' },
+    { path: ADMIN_PATHS.notifications, label: isID ? 'Notifikasi' : 'Notifications', icon: Bell, badge: null, section: 'management' },
   ];
 }
 
@@ -75,14 +76,14 @@ function getGuestNavItems(
       label: isID ? 'Pesanan' : 'Bookings',
       icon: CalendarDays,
       badge: activeBookingsCount > 0 ? activeBookingsCount : null,
-      badgeColor: 'bg-gold text-white'
+      badgeColor: 'bg-amber-100 text-amber-900'
     },
     {
       path: VIEW_PATHS.wishlist,
       label: isID ? 'Simpan' : 'Saved',
       icon: Heart,
       badge: wishlistCount > 0 ? wishlistCount : null,
-      badgeColor: 'bg-rose-500 text-white'
+      badgeColor: 'bg-rose-100 text-rose-800'
     },
     {
       path: VIEW_PATHS.analytics,

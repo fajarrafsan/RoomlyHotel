@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
-import { X, Loader2, Plus, Trash2, Layers, AlertCircle } from 'lucide-react';
+import { OperationsDialog } from './OperationsDialog';
+import { Loader2, Plus, Trash2, Layers, AlertCircle } from 'lucide-react';
 import { adminApi } from '../../api/admin';
 import { ApiError } from '../../lib/http';
 import { RoomResponse, RoomUnitResponse, RoomUnitStatus } from '../../types/api/room';
@@ -129,43 +129,21 @@ export const RoomUnitsModal: React.FC<RoomUnitsModalProps> = ({ isID, room, onCl
   const availableCount = units.filter((u) => u.status === 'AVAILABLE').length;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 sm:p-8">
-      <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-3xl bg-white rounded-3xl border border-slate-100 shadow-2xl my-auto"
-      >
-        <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-100">
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-900 tracking-tight">
-              {isID ? 'Unit Kamar Fisik' : 'Physical Room Units'} · {room.roomName}
-            </h3>
-            <p className="text-[11px] text-slate-400 font-light mt-0.5 font-mono">
-              /api/admin/rooms/{room.id}/units
-            </p>
-            <p className="text-[11px] text-slate-500 mt-1.5">
-              {units.length} {isID ? 'unit' : 'units'} ·{' '}
-              <span className="font-semibold text-emerald-600">{availableCount} {isID ? 'tersedia' : 'available'}</span>
-              {availableCount === 0 && units.length > 0 && (
-                <span className="text-amber-600 font-medium">
-                  {' '}— {isID ? 'check-in tidak bisa dilakukan' : 'check-in cannot proceed'}
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
+    <OperationsDialog title={isID ? 'Unit kamar fisik' : 'Physical room units'} description={room.roomName}
+      isID={isID} size="form" busy={creating || busyId != null || bulkCreating} onClose={onClose}>
+      <div className="min-w-0 space-y-3">
+        <p className="text-sm text-slate-700">
+          {units.length} {isID ? 'unit' : 'units'} ·{' '}
+          <span className="font-semibold text-emerald-700">{availableCount} {isID ? 'tersedia' : 'available'}</span>
+          {availableCount === 0 && units.length > 0 && (
+            <span className="text-amber-800">{' '}— {isID ? 'check-in belum bisa dilakukan' : 'check-in is unavailable'}</span>
+          )}
+        </p>
+        <div className="min-w-0 space-y-4">
           {/* Create controls */}
           <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
-            <form onSubmit={handleCreate} className="flex-1 flex items-end gap-2">
-              <label className="flex-1">
+            <form onSubmit={handleCreate} className="flex min-w-0 flex-1 flex-wrap items-end gap-2 sm:flex-nowrap">
+              <label className="min-w-24 flex-1">
                 <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
                   {isID ? 'Nomor Kamar' : 'Room Number'}
                 </span>
@@ -175,7 +153,7 @@ export const RoomUnitsModal: React.FC<RoomUnitsModalProps> = ({ isID, room, onCl
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-[13px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors"
                 />
               </label>
-              <label className="w-24">
+              <label className="w-20">
                 <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
                   {isID ? 'Lantai' : 'Floor'}
                 </span>
@@ -322,7 +300,7 @@ export const RoomUnitsModal: React.FC<RoomUnitsModalProps> = ({ isID, room, onCl
             )}
           </div>
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </OperationsDialog>
   );
 };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { hotelApi } from '../api/hotels';
 import { roomApi } from '../api/rooms';
 import { reviewApi } from '../api/reviews';
@@ -10,21 +10,44 @@ import {
   mapRoomToUI
 } from '../lib/adapters';
 import { Hotel, RoomType } from '../types';
+import { RoomResponse } from '../types/api';
 import { getTodayDateString } from '../lib/utils';
 
-// Fetches every hotel plus each hotel's room catalog (for a real "from Rp X" price)
-// and rating summary (for real stars), so the catalog is usable without opening detail.
+const ROOM_PAGE_SIZE = 200;
+
+// One catalog-wide room query grouped by hotel on the client. Asking once per
+// hotel sent ~30 requests per page load into room-service's per-client rate
+// limit, so a couple of refreshes left hotel cards at "Rp 0" with no rooms.
+async function loadRoomsByHotel(): Promise<Map<number, RoomResponse[]>> {
+  const byHotel = new Map<number, RoomResponse[]>();
+  for (let page = 0; page < 20; page++) {
+    const { content } = await roomApi.search({ page, size: ROOM_PAGE_SIZE });
+    for (const room of content) {
+      const rooms = byHotel.get(room.hotelId) ?? [];
+      rooms.push(room);
+      byHotel.set(room.hotelId, rooms);
+    }
+    if (content.length < ROOM_PAGE_SIZE) break;
+  }
+  return byHotel;
+}
+
+// Fetches every hotel plus its room catalog (for a real "from Rp X" price) and
+// rating summary (for real stars), so the catalog is usable without opening detail.
 async function loadHotelCatalog(): Promise<Hotel[]> {
-  const paged = await hotelApi.search({ size: 50 });
+  const [paged, roomsByHotel] = await Promise.all([
+    hotelApi.search({ size: 50 }),
+    loadRoomsByHotel().catch((err) => {
+      console.error('Failed to load room catalog', err);
+      return new Map<number, RoomResponse[]>();
+    }),
+  ]);
 
   return Promise.all(
     paged.content.map(async (h) => {
-      const [roomsResult, ratingResult] = await Promise.allSettled([
-        roomApi.search({ hotelId: h.id, size: 50 }),
-        reviewApi.hotelRatingSummary(h.id),
-      ]);
+      const [ratingResult] = await Promise.allSettled([reviewApi.hotelRatingSummary(h.id)]);
 
-      const rooms = roomsResult.status === 'fulfilled' ? roomsResult.value.content : [];
+      const rooms = roomsByHotel.get(h.id) ?? [];
       const minPrice = rooms.length ? Math.min(...rooms.map((r) => r.basePrice)) : 0;
       const rating = ratingResult.status === 'fulfilled' ? ratingResult.value : null;
 
@@ -43,10 +66,22 @@ async function loadHotelCatalog(): Promise<Hotel[]> {
 // loads its real reviews — deferred until the user actually opens the detail
 // modal, since these are per-room fan-out calls not worth doing for the whole list.
 async function enrichHotelDetail(hotel: Hotel): Promise<Hotel> {
+  // Wishlist snapshots can refer to hotels outside the first catalog page.
+  // Their basic DTO has no room list, so fetch that hotel's rooms on demand.
+  let rooms = hotel.rooms;
+  if (rooms.length === 0) {
+    const rows: RoomResponse[] = [];
+    for (let page = 0; page < 20; page++) {
+      const { content } = await roomApi.search({ hotelId: Number(hotel.id), page, size: ROOM_PAGE_SIZE });
+      rows.push(...content);
+      if (content.length < ROOM_PAGE_SIZE) break;
+    }
+    rooms = rows.map(room => mapRoomToUI(room));
+  }
   // Local calendar date, not toISOString() — at UTC+7 the UTC form reports
   // yesterday before 07:00 local, which would fetch the wrong day's availability.
   const today = getTodayDateString();
-  const roomIds = hotel.rooms.map((r) => Number(r.id));
+  const roomIds = rooms.map((r) => Number(r.id));
 
   const [imageResults, policyResults, availResults, reviewsPage, ratingSummary, facilities, hotelImages] = await Promise.all([
     Promise.allSettled(roomIds.map((id) => roomApi.images(id))),
@@ -58,7 +93,7 @@ async function enrichHotelDetail(hotel: Hotel): Promise<Hotel> {
     hotelApi.images(Number(hotel.id)).catch(() => []),
   ]);
 
-  const enrichedRooms: RoomType[] = hotel.rooms.map((room, idx) => {
+  const enrichedRooms: RoomType[] = rooms.map((room, idx) => {
     const images = imageResults[idx].status === 'fulfilled' ? (imageResults[idx] as PromiseFulfilledResult<Awaited<ReturnType<typeof roomApi.images>>>).value : [];
     const policies = policyResults[idx].status === 'fulfilled' ? (policyResults[idx] as PromiseFulfilledResult<Awaited<ReturnType<typeof roomApi.policiesGrouped>>>).value : [];
     const avail = availResults[idx].status === 'fulfilled' ? (availResults[idx] as PromiseFulfilledResult<Awaited<ReturnType<typeof roomApi.availability>>>).value : [];
@@ -107,10 +142,12 @@ async function enrichHotelDetail(hotel: Hotel): Promise<Hotel> {
       ...enrichedRooms.flatMap((r) => r.images ?? [r.image]),
     ])
   ).filter(Boolean).slice(0, 15);
+  const roomPrices = enrichedRooms.map(room => room.pricePerNight).filter(price => Number.isFinite(price) && price > 0);
 
   return {
     ...hotel,
     image: primaryHotelImage,
+    pricePerNight: roomPrices.length ? Math.min(...roomPrices) : hotel.pricePerNight,
     rooms: enrichedRooms,
     reviews,
     amenities,
@@ -136,24 +173,29 @@ export function useHotelCatalog() {
   const [hotelsError, setHotelsError] = useState<string | null>(null);
   const [selectedHotelForModal, setSelectedHotelForModal] = useState<Hotel | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
-  const enrichedHotelIdsRef = useRef<Set<string>>(new Set());
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const enrichedHotelsRef = useRef<Map<string, Hotel>>(new Map());
+  const refreshHotels = useCallback(() => setCatalogRevision(revision => revision + 1), []);
 
   // Open the detail modal and flip into loading synchronously (before the
   // enrich effect runs) so the skeleton shows from the very first frame.
   const openHotelDetail = (hotel: Hotel) => {
-    setSelectedHotelForModal(hotel);
-    if (!enrichedHotelIdsRef.current.has(hotel.id)) {
-      setDetailLoadingId(hotel.id);
-    }
+    const cached = enrichedHotelsRef.current.get(hotel.id);
+    setSelectedHotelForModal(cached ?? hotel);
+    setDetailLoadingId(cached ? null : hotel.id);
   };
 
-  // Load the hotel catalog once on mount from Roomly's hotel-service + room-service.
+  // Load on mount and manual retry; failed refreshes retain the last catalog.
   useEffect(() => {
     let cancelled = false;
     setHotelsLoading(true);
+    setHotelsError(null);
     loadHotelCatalog()
       .then((list) => {
-        if (!cancelled) setHotels(list);
+        if (!cancelled) {
+          enrichedHotelsRef.current.clear();
+          setHotels(list);
+        }
       })
       .catch((err) => {
         console.error('Failed to load hotel catalog', err);
@@ -165,18 +207,18 @@ export function useHotelCatalog() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [catalogRevision]);
 
   // Lazily enrich a hotel with rooms/images/policies/reviews the first time it's opened.
   useEffect(() => {
     const hotel = selectedHotelForModal;
-    if (!hotel || enrichedHotelIdsRef.current.has(hotel.id)) return;
+    if (!hotel || enrichedHotelsRef.current.has(hotel.id)) return;
     let cancelled = false;
     setDetailLoadingId(hotel.id);
     enrichHotelDetail(hotel)
       .then((enriched) => {
         if (cancelled) return;
-        enrichedHotelIdsRef.current.add(hotel.id);
+        enrichedHotelsRef.current.set(hotel.id, enriched);
         setHotels((prev) => prev.map((h) => (h.id === enriched.id ? enriched : h)));
         setSelectedHotelForModal((prev) => (prev && prev.id === enriched.id ? enriched : prev));
       })
@@ -193,6 +235,7 @@ export function useHotelCatalog() {
     hotels,
     hotelsLoading,
     hotelsError,
+    refreshHotels,
     selectedHotelForModal,
     setSelectedHotelForModal,
     openHotelDetail,

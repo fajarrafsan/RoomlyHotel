@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import {
-  ShieldAlert, ShieldCheck, UserPlus, UserCheck, RotateCw,
-  Users, UserX, CheckCircle2, ArrowRight, User
-} from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { CalendarDays, LayoutDashboard, RotateCw, UserCheck, UserPlus, Users, UsersRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAdminData } from '../hooks/useAdminData';
-import { Booking, Hotel, Language } from '../types';
-import { AdminStatsGrid } from '../components/admin/AdminStatsGrid';
+import { ADMIN_PATHS } from '../lib/routes';
+import type { Booking, Hotel, Language } from '../types';
+import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
+import { AdminRoomInventory, AdminStatsGrid } from '../components/admin/AdminStatsGrid';
 import { AdminBookingsTable } from '../components/admin/AdminBookingsTable';
 import { AdminCustomersTable } from '../components/admin/AdminCustomersTable';
+import { AdminStaffDirectory } from '../components/admin/AdminStaffDirectory';
+import { AdminWorkspaceSkeleton } from '../components/admin/AdminSkeleton';
 import { StaffModal } from '../components/admin/StaffModal';
 
 interface AdminDashboardPageProps {
@@ -20,309 +20,129 @@ interface AdminDashboardPageProps {
   onOpenAuth: () => void;
 }
 
-export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
-  hotels,
-  language,
-  onOpenInvoice,
-  onOpenAuth,
-}) => {
+const tabs = [
+  { id: 'overview', icon: LayoutDashboard, idLabel: 'Ikhtisar', enLabel: 'Overview' },
+  { id: 'customers', icon: UsersRound, idLabel: 'Pelanggan', enLabel: 'Customers' },
+  { id: 'staff', icon: Users, idLabel: 'Kelola staf', enLabel: 'Staff' },
+] as const;
+type DashboardTab = typeof tabs[number]['id'];
+
+export function AdminDashboardPage({ hotels, language, onOpenInvoice, onOpenAuth }: AdminDashboardPageProps) {
   const isID = language === 'ID';
   const { user } = useAuth();
-  const navigate = useNavigate();
-
-  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'staff' | 'customers'>('overview');
-
   const {
-    stats,
-    allBookings,
-    bookingsLoading,
-    bookingsError,
-    staffList,
-    staffLoading,
-    loadAdminData,
-    handleCreateStaff,
-    handleDeactivateStaff,
-    handleConfirmBooking,
-    handleCheckOutGuest,
+    stats, allBookings, bookingsError, staffList, staffError, inventory, initialLoading, loading, loadAdminData,
+    handleCreateStaff, handleDeactivateStaff, handleConfirmBooking, handleCheckOutGuest,
   } = useAdminData(user, hotels);
+  const tabId = useId();
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const activeMutation = useRef(false);
+  const [mutating, setMutating] = useState(false);
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+  const [customer, setCustomer] = useState<string | null>(null);
 
-  // Access Guard: ADMIN Role Only
-  if (!user || user.role !== 'ADMIN') {
-    return (
-      <div className="min-h-[65vh] flex flex-col items-center justify-center text-center p-6 my-10 max-w-md mx-auto bg-white rounded-3xl border border-slate-100 shadow-sm space-y-4">
-        <div className="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-100 text-rose-500 flex items-center justify-center mx-auto shadow-2xs">
-          <ShieldAlert className="w-8 h-8" />
-        </div>
+  const runMutation = async <Result,>(action: () => Promise<Result>) => {
+    if (activeMutation.current || loading) throw new Error(isID ? 'Tunggu proses dasbor selesai.' : 'Wait for the dashboard to finish updating.');
+    activeMutation.current = true;
+    setMutating(true);
+    try {
+      return await action();
+    } finally {
+      activeMutation.current = false;
+      setMutating(false);
+    }
+  };
 
-        <div className="space-y-1.5">
-          <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            {isID ? 'Akses Ditolak' : 'Access Restricted'}
-          </h2>
-          <p className="text-xs text-slate-400 font-light leading-relaxed">
-            {isID
-              ? 'Halaman Admin Dashboard hanya dapat diakses oleh staf berwenang dengan peran ADMIN.'
-              : 'The Admin Dashboard is strictly reserved for staff signed in with an ADMIN role.'}
-          </p>
-        </div>
+  const handleTabKeys = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    setActiveTab(tabs[next].id);
+    tabRefs.current[next]?.focus();
+  };
 
-        <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2 w-full">
-          {!user ? (
-            <button
-              onClick={onOpenAuth}
-              className="w-full py-2.5 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all shadow-md cursor-pointer"
-            >
-              {isID ? 'Masuk Akun Admin' : 'Sign In as Admin'}
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate('/')}
-              className="w-full py-2.5 px-5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all cursor-pointer"
-            >
-              {isID ? 'Kembali ke Beranda' : 'Back to Home'}
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
+  if (user?.role !== 'ADMIN') return <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>{null}</AdminAccessGuard>;
+  if (initialLoading) return <AdminWorkspaceSkeleton pathname={ADMIN_PATHS.dashboard} isID={isID} />;
+
+  const date = new Intl.DateTimeFormat(isID ? 'id-ID' : 'en-US', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  }).format(new Date());
 
   return (
-    <div className="space-y-6 sm:space-y-8 pb-20 max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-12 2xl:px-16 text-slate-800">
-      {/* ===== HERO HEADER ===== */}
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="relative overflow-hidden rounded-3xl bg-white p-4 sm:p-8 shadow-sm border border-slate-100"
-      >
-        <div className="absolute top-0 right-0 w-96 h-96 bg-teal-50/50 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-1/3 w-64 h-64 bg-amber-50/40 rounded-full blur-2xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-5 sm:gap-6">
-          <div className="space-y-1.5 sm:space-y-2 max-w-2xl">
-            <span className="inline-flex items-center gap-2 px-3 py-1 bg-slate-100 text-slate-700 rounded-full font-bold text-[9px] sm:text-[10px] uppercase tracking-[0.2em] border border-slate-200">
-              <ShieldCheck className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-              {isID ? 'Portal Administrator' : 'Administrator Portal'}
-            </span>
-            <h1 className="text-xl sm:text-3xl lg:text-4xl font-light tracking-tight text-slate-900 leading-snug">
-              {isID ? 'Selamat Datang, ' : 'Welcome, '}
-              <span className="font-serif italic font-semibold text-slate-900 block sm:inline">
-                {user.fullName}
-              </span>
-            </h1>
-            <p className="text-xs sm:text-sm text-slate-400 font-light leading-relaxed">
-              {isID
-                ? 'Kelola operasional hotel, performa pendapatan, data reservasi, dan akun staf dalam satu panel terpadu.'
-                : 'Manage hotel operations, revenue metrics, reservations, and staff accounts from one central panel.'}
-            </p>
+    <div className="admin-dashboard mx-auto max-w-[1340px] space-y-5 pb-14 text-slate-800 sm:space-y-6">
+      <header className="relative isolate overflow-hidden rounded-[24px] bg-[#101f3d] px-5 py-6 text-white shadow-sm sm:px-8 sm:py-8">
+        <picture className="absolute inset-y-0 right-0 -z-20 hidden h-full w-[58%] [mask-image:linear-gradient(to_right,transparent,black_36%)] md:block" aria-hidden>
+          <source media="(min-width: 768px)" srcSet="/images/seed/hotels/plataran-borobudur.jpg" />
+          <img alt="" decoding="async" className="h-full w-full object-cover object-[center_60%] opacity-60" />
+        </picture>
+        <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-r from-[#101f3d] via-[#101f3d]/80 to-[#101f3d]/30" aria-hidden />
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-xs font-medium text-gold-light sm:text-sm"><CalendarDays className="size-4" aria-hidden />{date}</p>
+            <h1 className="mt-2 font-serif text-[clamp(1.95rem,4.4vw,3.3rem)] leading-tight tracking-tight">{isID ? 'Dasbor admin' : 'Admin dashboard'}</h1>
+            <p className="mt-1.5 text-sm leading-6 text-slate-100 sm:text-base">{isID ? 'Pantau reservasi, pendapatan, dan kesiapan kamar.' : 'Track reservations, revenue, and room readiness.'}</p>
           </div>
-
-          {/* Quick Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
-            <button
-              onClick={() => navigate('/staff/check-in')}
-              className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <UserCheck className="w-4 h-4 shrink-0" />
-              <span>{isID ? 'Check-In Tamu' : 'Guest Check-In'}</span>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
+            <Link to={ADMIN_PATHS.checkIn} className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-gold-soft px-1.5 text-center text-xs font-semibold leading-tight text-navy-dark hover:bg-white sm:gap-2 sm:px-4 sm:text-sm">
+              <UserCheck className="hidden size-4 shrink-0 min-[380px]:block" aria-hidden />{isID ? 'Check-in tamu' : 'Guest check-in'}
+            </Link>
+            <button type="button" onClick={() => setStaffModalOpen(true)} disabled={loading || mutating} className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-white/35 bg-[#14254b]/80 px-1.5 text-center text-xs font-semibold leading-tight text-white hover:bg-navy disabled:cursor-not-allowed disabled:opacity-60 sm:gap-2 sm:px-4 sm:text-sm">
+              <UserPlus className="hidden size-4 shrink-0 min-[380px]:block" aria-hidden />{isID ? 'Tambah staf' : 'Add staff'}
             </button>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button
-                onClick={() => setIsStaffModalOpen(true)}
-                className="flex-1 sm:flex-none py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all inline-flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                <UserPlus className="w-4 h-4 shrink-0" />
-                <span>{isID ? 'Tambah Staf' : 'Add Staff'}</span>
-              </button>
-
-              <button
-                onClick={loadAdminData}
-                disabled={bookingsLoading}
-                className="py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold transition-all inline-flex items-center justify-center gap-1 cursor-pointer disabled:opacity-40 shrink-0"
-                title={isID ? 'Muat Ulang Data' : 'Refresh Data'}
-              >
-                <RotateCw className={`w-3.5 h-3.5 ${bookingsLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
+            <button type="button" onClick={() => void loadAdminData()} disabled={loading || mutating || staffModalOpen} aria-busy={loading} aria-label={isID ? 'Muat ulang data' : 'Refresh data'} title={isID ? 'Muat ulang data' : 'Refresh data'} className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-xl border border-white/35 bg-[#14254b]/80 text-white hover:bg-navy disabled:cursor-not-allowed disabled:opacity-60">
+              <RotateCw className={`size-4 ${loading ? 'motion-safe:animate-spin' : ''}`} aria-hidden />
+            </button>
           </div>
         </div>
+      </header>
 
-        {/* Tab Selection (Horizontal Scrollable on Mobile 320px) */}
-        <div className="mt-6 sm:mt-8 pt-4 border-t border-slate-100 flex items-center gap-2 overflow-x-auto scrollbar-none pb-1 -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div role="tablist" aria-label={isID ? 'Bagian dasbor' : 'Dashboard sections'} className="grid w-full grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:inline-grid sm:w-auto">
+        {tabs.map(({ id, icon: Icon, idLabel, enLabel }, index) => (
           <button
-            onClick={() => setActiveTab('overview')}
-            className={`py-2 px-3.5 sm:px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              activeTab === 'overview'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-500 hover:bg-slate-100'
-            }`}
+            key={id} ref={element => { tabRefs.current[index] = element; }} type="button" role="tab"
+            id={`${tabId}-${id}`} aria-controls={`${tabId}-panel`} aria-selected={id === activeTab} tabIndex={id === activeTab ? 0 : -1}
+            onClick={() => setActiveTab(id)} onKeyDown={event => handleTabKeys(event, index)}
+            className={`flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-lg px-1.5 text-xs font-semibold transition-colors sm:px-4 sm:text-sm ${id === activeTab ? 'bg-navy-dark text-white' : 'text-slate-700 hover:bg-navy-soft hover:text-navy-dark'}`}
           >
-            {isID ? 'Ikhtisar & Reservasi' : 'Overview & Bookings'}
+            <Icon className="hidden size-4 shrink-0 min-[365px]:block" aria-hidden />
+            {isID ? idLabel : enLabel}
           </button>
+        ))}
+      </div>
 
-          <button
-            onClick={() => setActiveTab('customers')}
-            className={`py-2 px-3.5 sm:px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-              activeTab === 'customers'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <User className="w-3.5 h-3.5 shrink-0" />
-            <span>{isID ? 'Akun Pelanggan' : 'Customer Accounts'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('staff')}
-            className={`py-2 px-3.5 sm:px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-              activeTab === 'staff'
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-500 hover:bg-slate-100'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5 shrink-0" />
-            <span>{isID ? 'Kelola Staf' : 'Staff Directory'}</span>
-            {staffList.length > 0 && (
-              <span className="px-1.5 py-0.2 bg-slate-700 text-white text-[10px] rounded-full">
-                {staffList.length}
-              </span>
-            )}
-          </button>
-        </div>
-      </motion.div>
-
-      {activeTab === 'overview' ? (
-        <>
-          {bookingsError && (
-            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
-              {bookingsError}
+      <div id={`${tabId}-panel`} role="tabpanel" aria-labelledby={`${tabId}-${activeTab}`} className="space-y-5 sm:space-y-6">
+        {activeTab === 'overview' ? (
+          <>
+            <AdminStatsGrid isID={isID} stats={stats} inventory={inventory} loading={loading} bookingsError={bookingsError} />
+            <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_270px]">
+              <AdminBookingsTable
+                isID={isID} language={language} bookings={allBookings} loading={loading} unavailable={bookingsError}
+                blocked={mutating} customerEmail={customer} onClearCustomer={() => setCustomer(null)} onOpenInvoice={onOpenInvoice}
+                onConfirm={id => runMutation(() => handleConfirmBooking(id))}
+                onCheckOut={id => runMutation(() => handleCheckOutGuest(id))}
+              />
+              <AdminRoomInventory inventory={inventory} isID={isID} loading={loading} />
             </div>
-          )}
-
-          {/* ===== KPI METRICS GRID ===== */}
-          <AdminStatsGrid isID={isID} stats={stats} />
-
-          {/* ===== LIVE SYSTEM BOOKINGS DIRECTORY ===== */}
-          <AdminBookingsTable
-            isID={isID}
-            language={language}
-            bookings={allBookings}
-            onOpenInvoice={onOpenInvoice}
-            onConfirm={handleConfirmBooking}
-            onCheckOut={handleCheckOutGuest}
+          </>
+        ) : activeTab === 'customers' ? (
+          <AdminCustomersTable
+            isID={isID} bookings={allBookings} staffList={staffList} loading={loading} incomplete={bookingsError || staffError}
+            onFilterCustomerBookings={email => { setCustomer(email); setActiveTab('overview'); tabRefs.current[0]?.focus(); }}
           />
-        </>
-      ) : activeTab === 'customers' ? (
-        /* ===== CUSTOMERS DIRECTORY SECTION ===== */
-        <AdminCustomersTable
-          isID={isID}
-          language={language}
-          bookings={allBookings}
-          staffList={staffList}
-          onFilterCustomerBookings={() => setActiveTab('overview')}
-        />
-      ) : (
-        /* ===== STAFF DIRECTORY SECTION ===== */
-        <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs space-y-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-semibold text-slate-900">
-                {isID ? 'Direktori Akun Staf' : 'Staff Accounts Directory'}
-              </h3>
-              <p className="text-xs text-slate-400 font-light mt-0.5">
-                {isID
-                  ? 'Daftar staf operasional hotel (Resepsionis, Housekeeping, Maintenance)'
-                  : 'Hotel operational staff accounts across all departments'}
-              </p>
-            </div>
+        ) : (
+          <AdminStaffDirectory
+            staff={staffList} hotels={hotels} isID={isID} loading={loading} unavailable={staffError}
+            blocked={mutating} onDeactivate={id => runMutation(() => handleDeactivateStaff(id))}
+          />
+        )}
+      </div>
 
-            <button
-              onClick={() => setIsStaffModalOpen(true)}
-              className="py-2 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>{isID ? 'Buat Staf Baru' : 'Create New Staff'}</span>
-            </button>
-          </div>
-
-          <div className="overflow-x-auto rounded-xl border border-slate-100">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="px-4 py-3">{isID ? 'Nama Staf' : 'Staff Name'}</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">{isID ? 'Peran / Jabatan' : 'Role'}</th>
-                  <th className="px-4 py-3">{isID ? 'Cakupan Hotel' : 'Hotel Scope'}</th>
-                  <th className="px-4 py-3">{isID ? 'Status' : 'Status'}</th>
-                  <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 font-normal text-slate-700">
-                {staffList.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
-                      {staffLoading
-                        ? (isID ? 'Memuat daftar staf...' : 'Loading staff...')
-                        : (isID ? 'Belum ada staf tambahan.' : 'No staff accounts found.')}
-                    </td>
-                  </tr>
-                ) : (
-                  staffList.map((staf) => (
-                    <tr key={staf.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{staf.fullName}</td>
-                      <td className="px-4 py-3 text-slate-500">{staf.email}</td>
-                      <td className="px-4 py-3">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
-                          {staf.role}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                        {staf.role === 'ADMIN'
-                          ? (isID ? 'Semua hotel' : 'All hotels')
-                          : staf.hotelId != null
-                            ? `Hotel #${staf.hotelId}`
-                            : (isID ? 'Belum ditetapkan' : 'Unassigned')}
-                      </td>
-                      <td className="px-4 py-3">
-                        {staf.active ? (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                            {isID ? 'Aktif' : 'Active'}
-                          </span>
-                        ) : (
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-100">
-                            {isID ? 'Non-aktif' : 'Inactive'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {staf.active && (
-                          <button
-                            onClick={() => handleDeactivateStaff(staf.id)}
-                            className="px-2.5 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 font-semibold text-[11px] transition-all inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <UserX className="w-3 h-3" />
-                            <span>{isID ? 'Nonaktifkan' : 'Deactivate'}</span>
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Staff Modal */}
       <StaffModal
-        isOpen={isStaffModalOpen}
-        onClose={() => setIsStaffModalOpen(false)}
-        isID={isID}
-        hotels={hotels}
-        onSubmit={handleCreateStaff}
+        isOpen={staffModalOpen} onClose={() => setStaffModalOpen(false)} isID={isID} hotels={hotels}
+        onSubmit={payload => runMutation(() => handleCreateStaff(payload))}
       />
     </div>
   );
-};
+}

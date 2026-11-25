@@ -1,33 +1,28 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import {
-  Search, ShieldAlert, Loader2, AlertCircle, CheckCircle2,
-  User, Building2, BedDouble, Calendar, RotateCcw, ArrowLeft, LogOut,
-  CreditCard, Ban, Undo2
-} from 'lucide-react';
+import { useRef, useState, type FormEvent } from 'react';
+import { ArrowLeft, ArrowRight, CheckCircle2, KeyRound, LoaderCircle, LogOut, RotateCcw, Search, ShieldAlert, Ticket } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { bookingApi } from '../api/bookings';
 import { paymentApi } from '../api/payments';
 import { roomApi } from '../api/rooms';
+import {
+  FrontDeskNotice, PaymentPanel, ReservationCard, StayPanel,
+  frontDeskCard, frontDeskPrimary, type PaymentAction,
+} from '../components/staff/CheckInPanels';
 import { ApiError } from '../lib/http';
-import { formatCurrency, formatDate } from '../lib/utils';
-import { BookingResponse, PaymentResponse, RoomUnitResponse } from '../types/api';
-import { Language } from '../types';
-
-interface CheckInPageProps {
-  language: Language;
-}
+import type { Language } from '../types';
+import type { BookingResponse, PaymentResponse, RoomUnitResponse } from '../types/api';
 
 const FRONT_DESK_ROLES = new Set(['ADMIN', 'RECEPTIONIST']);
+const pageClass = 'front-desk mx-auto max-w-[1140px] pb-12 text-slate-900 sm:pb-16';
 
-export const CheckInPage: React.FC<CheckInPageProps> = ({ language }) => {
+export function CheckInPage({ language }: { language: Language }) {
   const isID = language === 'ID';
-  const { user } = useAuth();
+  const { user, isLoading, sessionCheckError, retrySession } = useAuth();
   const navigate = useNavigate();
 
+  const lookupVersion = useRef(0);
   const [bookingCode, setBookingCode] = useState('');
-
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [booking, setBooking] = useState<BookingResponse | null>(null);
@@ -35,145 +30,159 @@ export const CheckInPage: React.FC<CheckInPageProps> = ({ language }) => {
   const [unitsLoading, setUnitsLoading] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
 
-  const [checkInLoading, setCheckInLoading] = useState(false);
-  const [checkInError, setCheckInError] = useState<string | null>(null);
-  const [operationResult, setOperationResult] = useState<{ booking: BookingResponse; action: 'CHECK_IN' | 'CHECK_OUT' } | null>(null);
+  const [stayLoading, setStayLoading] = useState(false);
+  const [stayError, setStayError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ booking: BookingResponse; action: 'arrival' | 'departure'; roomNumber: string | null } | null>(null);
+
   const [payment, setPayment] = useState<PaymentResponse | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [paymentAction, setPaymentAction] = useState<'CANCEL' | 'REFUND' | null>(null);
+  const [paymentAction, setPaymentAction] = useState<PaymentAction | null>(null);
   const [paymentActionLoading, setPaymentActionLoading] = useState(false);
   const [refundReason, setRefundReason] = useState('');
+  const mutating = stayLoading || paymentActionLoading;
 
   if (!user || !FRONT_DESK_ROLES.has(user.role)) {
     return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-4 py-20">
-        <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-500 flex items-center justify-center">
-          <ShieldAlert className="w-6 h-6" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">{isID ? 'Akses Ditolak' : 'Access Denied'}</h2>
-          <p className="text-sm text-slate-500 mt-1 max-w-sm">
-            {isID
-              ? 'Halaman check-in hanya tersedia untuk admin dan resepsionis.'
-              : 'The check-in page is only available to administrators and receptionists.'}
-          </p>
-        </div>
-        <button onClick={() => navigate('/')} className="text-sm font-semibold text-slate-900 hover:underline underline-offset-2">
-          {isID ? 'Kembali ke Beranda' : 'Back to Home'}
-        </button>
+      <div className={pageClass + ' pt-4'}>
+        <section className={frontDeskCard + ' mx-auto max-w-lg py-9 text-center'} aria-busy={isLoading}>
+          <span className="mx-auto grid size-12 place-items-center rounded-xl bg-navy-soft text-navy">
+            {isLoading ? <LoaderCircle className="size-5 motion-safe:animate-spin" aria-hidden /> : <ShieldAlert className="size-5" aria-hidden />}
+          </span>
+          <h1 className="mt-4 font-serif text-2xl leading-tight text-navy-dark">
+            {isLoading
+              ? (isID ? 'Memeriksa sesi staf…' : 'Checking staff session…')
+              : sessionCheckError
+                ? (isID ? 'Sesi belum dapat dimuat' : 'Could not load your session')
+                : (isID ? 'Ruang kerja staf' : 'Staff workspace')}
+          </h1>
+          {!isLoading && (
+            <>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
+                {sessionCheckError
+                  ? (isID ? 'Coba periksa kembali sesi Anda untuk melanjutkan.' : 'Try checking your session again to continue.')
+                  : (isID ? 'Halaman check-in tersedia untuk admin dan resepsionis.' : 'The check-in page is available to administrators and receptionists.')}
+              </p>
+              {sessionCheckError ? (
+                <button type="button" onClick={() => void retrySession()} className={frontDeskPrimary + ' mt-5'}>{isID ? 'Coba lagi' : 'Try again'}</button>
+              ) : (
+                <button type="button" onClick={() => navigate('/')} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-navy hover:underline">
+                  <ArrowLeft className="size-4" aria-hidden />{isID ? 'Kembali ke beranda' : 'Back to home'}
+                </button>
+              )}
+            </>
+          )}
+        </section>
       </div>
     );
   }
 
-  const resetSearch = () => {
-    setBooking(null);
-    setUnits([]);
-    setSelectedUnitId(null);
-    setLookupError(null);
-    setCheckInError(null);
-    setOperationResult(null);
-    setPayment(null);
-    setPaymentError(null);
-    setPaymentAction(null);
+  const clearPaymentAction = (action: PaymentAction | null) => {
+    setPaymentAction(action);
     setRefundReason('');
-    setBookingCode('');
   };
 
-  const loadPayment = async (bookingId: number) => {
-    setPaymentLoading(true);
-    setPaymentError(null);
+  const resetSearch = () => {
+    lookupVersion.current += 1;
+    setBookingCode('');
+    setBooking(null);
+    setLookupLoading(false);
+    setLookupError(null);
+    setUnits([]);
+    setUnitsLoading(false);
+    setSelectedUnitId(null);
+    setStayError(null);
+    setResult(null);
     setPayment(null);
+    setPaymentLoading(false);
+    setPaymentError(null);
+    clearPaymentAction(null);
+  };
+
+  const loadPayment = async (bookingId: number, version: number) => {
+    setPaymentLoading(true);
     try {
-      setPayment(await paymentApi.getByBookingId(bookingId));
-    } catch (err) {
-      if (!(err instanceof ApiError && err.status === 404)) {
-        setPaymentError(err instanceof ApiError
-          ? err.message
+      const found = await paymentApi.getByBookingId(bookingId);
+      if (version === lookupVersion.current) setPayment(found);
+    } catch (error) {
+      if (version === lookupVersion.current && !(error instanceof ApiError && error.status === 404)) {
+        setPaymentError(error instanceof ApiError
+          ? error.message
           : (isID ? 'Data pembayaran tidak dapat dimuat.' : 'Payment details could not be loaded.'));
       }
     } finally {
-      setPaymentLoading(false);
+      if (version === lookupVersion.current) setPaymentLoading(false);
     }
   };
 
-  const handleLookupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = bookingCode.trim();
-    if (!code) return;
+  const loadRooms = async (roomId: number, version: number) => {
+    setUnitsLoading(true);
+    try {
+      const found = await roomApi.unitsByRoom(roomId);
+      if (version === lookupVersion.current) setUnits(found.filter((unit) => unit.status === 'AVAILABLE'));
+    } catch {
+      if (version === lookupVersion.current) setStayError(isID ? 'Daftar kamar gagal dimuat.' : 'Could not load available rooms.');
+    } finally {
+      if (version === lookupVersion.current) setUnitsLoading(false);
+    }
+  };
 
+  const handleLookup = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = bookingCode.trim();
+    if (!code || lookupLoading) return;
+
+    const version = ++lookupVersion.current;
     setLookupLoading(true);
     setLookupError(null);
-    setBooking(null);
-    setUnits([]);
-    setSelectedUnitId(null);
-    setPayment(null);
-    setPaymentError(null);
-    setPaymentAction(null);
     try {
       const found = await bookingApi.getByCode(code);
+      if (version !== lookupVersion.current) return;
       setBooking(found);
-      void loadPayment(found.id);
-
-      if (found.status === 'CONFIRMED') {
-        setUnitsLoading(true);
-        try {
-          const roomUnits = await roomApi.unitsByRoom(found.roomId);
-          setUnits(roomUnits.filter((u) => u.status === 'AVAILABLE'));
-        } catch (unitErr) {
-          console.error('Failed to load room units', unitErr);
-          setCheckInError(isID ? 'Gagal memuat daftar unit kamar.' : 'Failed to load room units.');
-        } finally {
-          setUnitsLoading(false);
-        }
-      }
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setLookupError(err.message);
+      void loadPayment(found.id, version);
+      if (found.status === 'CONFIRMED') void loadRooms(found.roomId, version);
+    } catch (error) {
+      if (version !== lookupVersion.current) return;
+      if (error instanceof ApiError && error.status === 404) {
+        setLookupError(isID ? 'Reservasi tidak ditemukan. Periksa kembali kode reservasi.' : 'Reservation not found. Check the reservation code and try again.');
       } else {
-        setLookupError(isID ? 'Booking tidak ditemukan untuk kode ini.' : 'No booking found for this code.');
+        setLookupError(error instanceof ApiError ? error.message : (isID ? 'Reservasi belum dapat dimuat. Coba lagi.' : 'Could not load the reservation. Try again.'));
       }
     } finally {
-      setLookupLoading(false);
+      if (version === lookupVersion.current) setLookupLoading(false);
     }
   };
 
-  const handleCheckIn = async () => {
-    if (!booking || !selectedUnitId) return;
-    setCheckInLoading(true);
-    setCheckInError(null);
+  const confirmStay = async () => {
+    if (!booking || mutating) return;
+    const unit = units.find((candidate) => candidate.id === selectedUnitId);
+    const action = booking.status === 'CHECKED_IN' ? 'departure' : 'arrival';
+    const operation = action === 'departure'
+      ? () => bookingApi.checkOut(booking.id)
+      : booking.status === 'CONFIRMED' && unit
+        ? () => bookingApi.checkIn(booking.id, unit.id)
+        : null;
+    if (!operation) return;
+    setStayLoading(true);
+    setStayError(null);
     try {
-      const updated = await bookingApi.checkIn(booking.id, selectedUnitId);
-      setOperationResult({ booking: updated, action: 'CHECK_IN' });
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setCheckInError(err.message);
-      } else {
-        setCheckInError(isID ? 'Gagal melakukan check-in. Coba lagi.' : 'Failed to check in. Please try again.');
-      }
+      const updated = await operation();
+      setResult({
+        booking: updated,
+        action,
+        roomNumber: action === 'arrival' ? unit?.roomNumber ?? null : null,
+      });
+    } catch (error) {
+      setStayError(error instanceof ApiError
+        ? error.message
+        : (isID ? 'Tindakan gagal diproses. Silakan coba lagi.' : 'The action failed. Please try again.'));
     } finally {
-      setCheckInLoading(false);
+      setStayLoading(false);
     }
   };
 
-  const handleCheckOut = async () => {
-    if (!booking) return;
-    setCheckInLoading(true);
-    setCheckInError(null);
-    try {
-      const updated = await bookingApi.checkOut(booking.id);
-      setOperationResult({ booking: updated, action: 'CHECK_OUT' });
-    } catch (err) {
-      setCheckInError(err instanceof ApiError
-        ? err.message
-        : (isID ? 'Gagal melakukan check-out. Coba lagi.' : 'Failed to check out. Please try again.'));
-    } finally {
-      setCheckInLoading(false);
-    }
-  };
-
-  const handlePaymentAction = async () => {
-    if (!payment || !paymentAction || !booking) return;
+  const confirmPayment = async () => {
+    if (!payment || !paymentAction || !booking || mutating) return;
     setPaymentActionLoading(true);
     setPaymentError(null);
     try {
@@ -181,312 +190,123 @@ export const CheckInPage: React.FC<CheckInPageProps> = ({ language }) => {
         ? await paymentApi.cancel(payment.id)
         : await paymentApi.refund(payment.id, { reason: refundReason.trim() || undefined });
       setPayment(updated);
-      setPaymentAction(null);
-      setRefundReason('');
+      clearPaymentAction(null);
       try {
         setBooking(await bookingApi.getByCode(booking.bookingCode));
       } catch {
-        // Payment action itself succeeded; a delayed booking sync will be shown
-        // the next time this booking is searched.
+        // The transaction result is available even when the booking status has not refreshed.
       }
-    } catch (err) {
-      setPaymentError(err instanceof ApiError
-        ? err.message
-        : (isID ? 'Aksi pembayaran gagal diproses.' : 'The payment action could not be processed.'));
+    } catch (error) {
+      setPaymentError(error instanceof ApiError
+        ? error.message
+        : (isID ? 'Transaksi gagal diproses. Silakan coba lagi.' : 'The transaction failed. Please try again.'));
     } finally {
       setPaymentActionLoading(false);
     }
   };
 
-  const isCheckedIn = booking?.status === 'CHECKED_IN';
-  const canCheckIn = booking?.status === 'CONFIRMED';
-  const isIneligible = booking && !isCheckedIn && !canCheckIn;
-  const canCancelPayment = !!payment && !['PAID', 'CANCELLED', 'EXPIRED', 'REFUNDED'].includes(payment.status);
-  const canRefundPayment = payment?.status === 'PAID'
-    && !!booking
-    && ['CANCELLED', 'EXPIRED', 'NO_SHOW'].includes(booking.status);
-
   return (
-    <div className="max-w-3xl mx-auto pb-16 px-4 sm:px-6 lg:px-8">
-      <button
-        onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-xs sm:text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors mb-3 sm:mb-4"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        {isID ? 'Kembali' : 'Back'}
-      </button>
+    <div className={pageClass}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4">
+        <button type="button" onClick={() => navigate(-1)} disabled={mutating} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-700 hover:bg-navy-soft hover:text-navy disabled:opacity-60">
+          <ArrowLeft className="size-4" aria-hidden />{isID ? 'Kembali' : 'Back'}
+        </button>
+        {booking && !result && (
+          <button type="button" onClick={resetSearch} disabled={mutating} className="inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-navy hover:bg-navy-soft disabled:opacity-60">
+            <RotateCcw className="size-4" aria-hidden />{isID ? 'Cari reservasi lain' : 'Find another reservation'}
+          </button>
+        )}
+      </div>
 
-      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="p-4 sm:p-6 bg-slate-900 text-white">
-          <h1 className="text-base sm:text-lg font-semibold flex items-center gap-2">
-            <Search className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
-            {isID ? 'Check-In & Check-Out Tamu' : 'Guest Check-In & Check-Out'}
-          </h1>
-          <p className="text-xs sm:text-[13px] text-slate-300 mt-1 font-light leading-relaxed">
-            {isID
-              ? 'Masukkan kode booking untuk memproses kedatangan atau kepulangan tamu.'
-              : "Enter the guest's booking code to process arrival or departure."}
+      <header className="relative isolate overflow-hidden rounded-[24px] bg-[#101f3d] px-5 py-7 text-white sm:px-8 sm:py-9 lg:px-10 lg:py-11">
+        <img src="/images/seed/hotels/tentrem.jpg" alt="" decoding="async" className="absolute inset-y-0 right-0 -z-20 hidden h-full w-[54%] object-cover object-[center_64%] opacity-70 sm:block" />
+        <div className="absolute inset-0 -z-10 bg-gradient-to-r from-[#101f3d] via-[#101f3d]/90 to-[#101f3d]/15" aria-hidden />
+        <div className="max-w-lg">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-gold-light">
+            <span className="h-px w-5 bg-gold-light" aria-hidden />
+            {isID ? 'Resepsionis' : 'Front desk'}
+          </p>
+          <h1 className="mt-2.5 font-serif text-[clamp(1.85rem,5vw,3.2rem)] leading-[1.1] tracking-tight">Check-in & check-out</h1>
+          <p className="mt-3 max-w-md text-sm leading-6 text-slate-100 sm:text-base">
+            {isID ? 'Temukan reservasi dan catat kedatangan atau kepulangan tamu.' : 'Find a reservation and record a guest arrival or departure.'}
           </p>
         </div>
+      </header>
 
-        <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
-            {operationResult ? (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-4 py-6">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="w-7 h-7 sm:w-8 sm:h-8" />
-              </div>
-              <div>
-                <h2 className="text-base sm:text-lg font-semibold text-slate-900">
-                  {operationResult.action === 'CHECK_IN'
-                    ? (isID ? 'Check-In Berhasil' : 'Check-In Successful')
-                    : (isID ? 'Check-Out Berhasil' : 'Check-Out Successful')}
-                </h2>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1">
-                  {operationResult.booking.bookingCode}
-                  {operationResult.action === 'CHECK_IN' && ` · ${isID ? 'Kamar' : 'Room'} ${units.find((u) => u.id === selectedUnitId)?.roomNumber ?? '—'}`}
-                </p>
-              </div>
-              <button
-                onClick={resetSearch}
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 py-3 px-6 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-[13px] font-semibold transition-colors"
-              >
-                <RotateCcw className="w-4 h-4" />
-                {isID ? 'Proses Tamu Berikutnya' : 'Process Next Guest'}
-              </button>
-            </motion.div>
-          ) : booking ? (
-            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-              {/* Booking summary */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">{booking.bookingCode}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    booking.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
-                  }`}>
-                    {booking.status}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-slate-800 font-semibold">
-                  <User className="w-4 h-4 text-slate-400" />
-                  {booking.guests.find((g) => g.isPrimaryGuest)?.fullName || booking.guests[0]?.fullName || '—'}
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-slate-600">
-                  <Building2 className="w-4 h-4 text-slate-400" />
-                  {booking.hotelName || `Hotel #${booking.hotelId}`}
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-slate-600">
-                  <BedDouble className="w-4 h-4 text-slate-400" />
-                  {booking.roomName || `Room #${booking.roomId}`}
-                </div>
-                <div className="flex items-center gap-2 text-[13px] text-slate-600">
-                  <Calendar className="w-4 h-4 text-slate-400" />
-                  {formatDate(booking.checkInDate, isID ? 'ID' : 'EN')} → {formatDate(booking.checkOutDate, isID ? 'ID' : 'EN')}
-                </div>
-                <div className="flex items-center gap-2 text-[12px]">
-                  <span className={`px-2 py-0.5 rounded-full font-semibold ${
-                    booking.paymentStatus === 'PAID' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-                  }`}>
-                    {isID ? 'Pembayaran' : 'Payment'}: {booking.paymentStatus}
-                  </span>
-                </div>
-              </div>
-
-              <section className="rounded-2xl border border-slate-100 bg-white p-4 space-y-3" aria-labelledby="front-desk-payment-title">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2.5 min-w-0">
-                    <span className="w-9 h-9 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
-                      <CreditCard className="w-4 h-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <h2 id="front-desk-payment-title" className="text-sm font-semibold text-slate-900">
-                        {isID ? 'Pembayaran reservasi' : 'Booking payment'}
-                      </h2>
-                      <p className="text-xs text-slate-500 mt-0.5">
-                        {payment?.paymentCode || (isID ? 'Belum ada transaksi pembayaran' : 'No payment transaction yet')}
-                      </p>
-                    </div>
-                  </div>
-                  {payment && (
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-700">
-                      {payment.status}
-                    </span>
-                  )}
-                </div>
-
-                {paymentLoading ? (
-                  <p className="min-h-11 flex items-center gap-2 text-xs text-slate-500"><Loader2 className="w-4 h-4 animate-spin" />{isID ? 'Memuat pembayaran...' : 'Loading payment...'}</p>
-                ) : payment ? (
-                  <>
-                    <dl className="grid grid-cols-2 gap-3 text-xs">
-                      <div><dt className="text-slate-400">Total</dt><dd className="font-semibold text-slate-900 mt-1">{formatCurrency(payment.amount)}</dd></div>
-                      <div><dt className="text-slate-400">{isID ? 'Metode' : 'Method'}</dt><dd className="font-medium text-slate-700 mt-1">{payment.paymentMethod || '—'}</dd></div>
-                    </dl>
-
-                    {!paymentAction && (canCancelPayment || canRefundPayment) && (
-                      <div className="flex flex-wrap gap-2">
-                        {canCancelPayment && (
-                          <button type="button" onClick={() => setPaymentAction('CANCEL')} className="min-h-11 px-4 rounded-xl border border-rose-200 text-rose-700 text-xs font-semibold inline-flex items-center gap-2 hover:bg-rose-50">
-                            <Ban className="w-4 h-4" />{isID ? 'Batalkan pembayaran' : 'Cancel payment'}
-                          </button>
-                        )}
-                        {canRefundPayment && (
-                          <button type="button" onClick={() => setPaymentAction('REFUND')} className="min-h-11 px-4 rounded-xl border border-amber-200 text-amber-800 text-xs font-semibold inline-flex items-center gap-2 hover:bg-amber-50">
-                            <Undo2 className="w-4 h-4" />Refund
-                          </button>
-                        )}
-                      </div>
-                    )}
-
-                    {paymentAction && (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-                        <p className="text-xs font-medium text-amber-900">
-                          {paymentAction === 'CANCEL'
-                            ? (isID ? 'Konfirmasi pembatalan transaksi yang belum selesai.' : 'Confirm cancellation of this unsettled transaction.')
-                            : (isID ? 'Konfirmasi refund penuh. Tindakan ini tidak dapat dibatalkan.' : 'Confirm the full refund. This action cannot be undone.')}
-                        </p>
-                        {paymentAction === 'REFUND' && (
-                          <label className="block space-y-1.5 text-xs font-medium text-slate-700">
-                            <span>{isID ? 'Alasan refund (opsional)' : 'Refund reason (optional)'}</span>
-                            <textarea value={refundReason} onChange={(event) => setRefundReason(event.target.value)} rows={2} maxLength={500} className="w-full rounded-xl border border-amber-200 bg-white p-3 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-amber-300" />
-                          </label>
-                        )}
-                        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-                          <button type="button" onClick={() => { setPaymentAction(null); setRefundReason(''); }} disabled={paymentActionLoading} className="min-h-11 px-4 rounded-xl border border-slate-200 bg-white text-slate-700 text-xs font-semibold disabled:opacity-50">{isID ? 'Kembali' : 'Back'}</button>
-                          <button type="button" onClick={() => { void handlePaymentAction(); }} disabled={paymentActionLoading} className="min-h-11 px-4 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-50">
-                            {paymentActionLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                            {paymentAction === 'CANCEL' ? (isID ? 'Ya, batalkan' : 'Yes, cancel') : (isID ? 'Proses refund' : 'Process refund')}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-xs text-slate-500">{isID ? 'Tidak ada transaksi pembayaran untuk booking ini.' : 'There is no payment transaction for this booking.'}</p>
-                )}
-
-                {paymentError && <p role="alert" className="rounded-xl border border-rose-100 bg-rose-50 p-3 text-xs text-rose-700">{paymentError}</p>}
-              </section>
-
-              {isCheckedIn ? (
-                <div className="space-y-3">
-                  <div className="p-3.5 rounded-xl bg-teal-50 border border-teal-100 text-teal-800 text-[12.5px] font-medium flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                    {isID
-                      ? 'Tamu sedang menginap. Selesaikan check-out untuk menutup reservasi dan menandai kamar perlu dibersihkan.'
-                      : 'The guest is currently checked in. Complete checkout to close the stay and mark the room for cleaning.'}
-                  </div>
-                  {checkInError && (
-                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[12px] font-medium flex items-start gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      {checkInError}
-                    </div>
-                  )}
-                  <button
-                    onClick={handleCheckOut}
-                    disabled={checkInLoading}
-                    className="w-full min-h-11 py-3.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-[13px] font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
-                  >
-                    {checkInLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
-                    {isID ? 'Konfirmasi Check-Out' : 'Confirm Check-Out'}
-                  </button>
-                </div>
-              ) : isIneligible ? (
-                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[12.5px] font-medium flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  {isID
-                    ? `Booking ini berstatus ${booking.status} dan tidak bisa di-check-in.`
-                    : `This booking is ${booking.status} and cannot be checked in.`}
-                </div>
-              ) : (
-                <>
-                  {/* Room unit picker */}
-                  <div className="space-y-2">
-                    <label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-                      {isID ? 'Pilih Kamar Fisik' : 'Assign Physical Room'}
-                    </label>
-                    {unitsLoading ? (
-                      <div className="flex items-center gap-2 text-[13px] text-slate-400 py-3">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        {isID ? 'Memuat kamar tersedia...' : 'Loading available rooms...'}
-                      </div>
-                    ) : units.length === 0 ? (
-                      <p className="text-[13px] text-rose-600 font-medium py-1">
-                        {isID ? 'Tidak ada kamar fisik yang tersedia untuk tipe ini.' : 'No available physical room for this room type.'}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        {units.map((unit) => (
-                          <button
-                            key={unit.id}
-                            onClick={() => setSelectedUnitId(unit.id)}
-                            className={`py-2.5 rounded-xl text-[13px] font-semibold border transition-colors ${
-                              selectedUnitId === unit.id
-                                ? 'bg-slate-900 border-slate-900 text-white'
-                                : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'
-                            }`}
-                          >
-                            {unit.roomNumber}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {checkInError && (
-                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[12px] font-medium flex items-start gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                      {checkInError}
-                    </div>
-                  )}
-
-                  <button
-                    onClick={handleCheckIn}
-                    disabled={!selectedUnitId || checkInLoading}
-                    className="w-full py-3.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
-                  >
-                    {checkInLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    {isID ? 'Konfirmasi Check-In' : 'Confirm Check-In'}
-                  </button>
-                </>
-              )}
-
-              <button
-                onClick={resetSearch}
-                className="w-full text-[12px] text-slate-400 hover:text-slate-600 font-medium transition-colors"
-              >
-                {isID ? 'Batal, cari lagi' : 'Cancel, search again'}
-              </button>
-            </motion.div>
-          ) : (
-            <>
-              <form onSubmit={handleLookupSubmit} className="flex gap-2 max-w-sm mx-auto">
-                <input
-                  autoFocus
-                  type="text"
-                  value={bookingCode}
-                  onChange={(e) => setBookingCode(e.target.value)}
-                  placeholder={isID ? 'Kode booking, mis. BK-20260810-...' : 'Booking code, e.g. BK-20260810-...'}
-                  className="flex-1 px-4 py-3 rounded-xl border border-slate-200 text-[13px] font-medium focus:outline-none focus:ring-1 focus:ring-slate-900"
-                />
-                <button
-                  type="submit"
-                  disabled={!bookingCode.trim() || lookupLoading}
-                  className="px-4 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[13px] font-semibold transition-colors disabled:opacity-40"
-                >
-                  {lookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (isID ? 'Cari' : 'Find')}
-                </button>
-              </form>
-
-              {lookupError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[12.5px] font-medium flex items-start gap-2 max-w-sm mx-auto">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  {lookupError}
-                </div>
-              )}
-            </>
-          )}
+      {result ? (
+        <section className={frontDeskCard + ' mt-5 sm:mt-6'} aria-labelledby="reception-result">
+          <div role="status" className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+            <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><CheckCircle2 className="size-6" aria-hidden /></span>
+            <div className="min-w-0 flex-1">
+              <h2 id="reception-result" className="font-serif text-2xl text-navy-dark">
+                {result.action === 'arrival' ? (isID ? 'Check-in berhasil' : 'Check-in complete') : (isID ? 'Check-out berhasil' : 'Check-out complete')}
+              </h2>
+              <p className="mt-1 break-words text-sm text-slate-600">
+                {result.booking.bookingCode}{result.roomNumber && ` · ${isID ? 'Kamar' : 'Room'} ${result.roomNumber}`}
+              </p>
+            </div>
+            <button type="button" onClick={resetSearch} className={frontDeskPrimary + ' w-full sm:w-auto'}>
+              {isID ? 'Proses tamu berikutnya' : 'Process next guest'}<ArrowRight className="size-4" aria-hidden />
+            </button>
+          </div>
+        </section>
+      ) : booking ? (
+        <div className="mt-5 grid items-start gap-4 sm:mt-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
+          <ReservationCard booking={booking} language={language} />
+          <div className="lg:col-start-2 lg:row-span-2">
+            <StayPanel
+              booking={booking} isID={isID} units={units} unitsLoading={unitsLoading} selectedRoom={selectedUnitId}
+              onSelectRoom={setSelectedUnitId} error={stayError} submitting={stayLoading} blocked={paymentActionLoading}
+              onConfirm={() => void confirmStay()}
+            />
+          </div>
+          <PaymentPanel
+            booking={booking} payment={payment} isID={isID} loading={paymentLoading} error={paymentError}
+            action={paymentAction} submitting={paymentActionLoading} blocked={stayLoading}
+            reason={refundReason} onReason={setRefundReason} onRequest={clearPaymentAction} onConfirm={() => void confirmPayment()}
+          />
         </div>
-      </div>
+      ) : (
+        <div className="mt-5 grid items-start gap-4 sm:mt-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          <section className={frontDeskCard} aria-labelledby="reception-search">
+            <h2 id="reception-search" className="text-xl font-semibold text-navy-dark">{isID ? 'Cari reservasi' : 'Find a reservation'}</h2>
+            <form onSubmit={handleLookup} className="mt-4" aria-busy={lookupLoading}>
+              <label htmlFor="desk-booking-code" className="mb-1.5 block text-sm font-semibold text-slate-800">{isID ? 'Kode reservasi' : 'Reservation code'}</label>
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <div className="relative min-w-0 flex-1">
+                  <Ticket className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-slate-600" aria-hidden />
+                  <input
+                    id="desk-booking-code" type="text" value={bookingCode} autoFocus autoComplete="off" autoCapitalize="characters" spellCheck={false}
+                    onChange={(event) => { setBookingCode(event.target.value); setLookupError(null); }}
+                    placeholder="BK-20261125-A2F73B61" disabled={lookupLoading} aria-invalid={!!lookupError} aria-describedby={lookupError ? 'desk-code-hint desk-code-error' : 'desk-code-hint'}
+                    className="h-12 w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pr-3 pl-10 font-mono text-base text-navy-dark placeholder:text-slate-500"
+                  />
+                </div>
+                <button type="submit" disabled={lookupLoading || !bookingCode.trim()} className={frontDeskPrimary + ' shrink-0'}>
+                  {lookupLoading ? <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden /> : <Search className="size-4" aria-hidden />}
+                  {lookupLoading ? (isID ? 'Mencari…' : 'Searching…') : (isID ? 'Cari' : 'Search')}
+                </button>
+              </div>
+              <p id="desk-code-hint" className="mt-2 text-sm text-slate-600">{isID ? 'Gunakan kode yang tertera di konfirmasi reservasi tamu.' : 'Use the code shown on the guest’s reservation confirmation.'}</p>
+              {lookupError && <div id="desk-code-error" className="mt-4"><FrontDeskNotice>{lookupError}</FrontDeskNotice></div>}
+            </form>
+          </section>
+
+          <aside className="min-w-0 rounded-[22px] border border-slate-200 bg-navy-soft/45 p-5 sm:p-6" aria-labelledby="reception-guide">
+            <h2 id="reception-guide" className="text-base font-semibold text-navy-dark">{isID ? 'Panduan resepsionis' : 'Front desk guide'}</h2>
+            <dl className="mt-3 divide-y divide-slate-200">
+              <div className="flex gap-3 pb-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-navy"><KeyRound className="size-4" aria-hidden /></span>
+                <div><dt className="text-sm font-semibold text-navy-dark">Check-in</dt><dd className="mt-0.5 text-sm leading-5 text-slate-600">{isID ? 'Pilih kamar fisik yang tersedia untuk reservasi terkonfirmasi.' : 'Assign an available room to a confirmed reservation.'}</dd></div>
+              </div>
+              <div className="flex gap-3 pt-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-navy"><LogOut className="size-4" aria-hidden /></span>
+                <div><dt className="text-sm font-semibold text-navy-dark">Check-out</dt><dd className="mt-0.5 text-sm leading-5 text-slate-600">{isID ? 'Tutup masa inap dan tandai kamar untuk dibersihkan.' : 'Close the stay and mark the room for cleaning.'}</dd></div>
+              </div>
+            </dl>
+          </aside>
+        </div>
+      )}
     </div>
   );
-};
+}

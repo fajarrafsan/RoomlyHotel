@@ -1,50 +1,35 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'motion/react';
-import { roleLandingPath } from '../../lib/routes';
+import { isOperationsRole, roleLandingPath } from '../../lib/routes';
 import { useAuth } from '../../context/AuthContext';
 
-export const HeaderLogo: React.FC<{ isID: boolean }> = ({ isID }) => {
+export function HeaderLogo({ isID }: { isID: boolean }) {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const isPublic = !isOperationsRole(user?.role);
 
   return (
-    <Link to={roleLandingPath(user?.role)} className="shrink-0" aria-label="Roomly">
-      <motion.div
-        className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group"
-        whileHover={{ scale: 1.015 }}
-        whileTap={{ scale: 0.98 }}
+    <Link
+      to={roleLandingPath(user?.role)}
+      aria-label={isAdmin ? (isID ? 'Roomly Panel Admin' : 'Roomly Admin Panel') : 'Roomly'}
+      className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg ${isPublic ? 'max-[375px]:gap-0.5' : ''} ${isAdmin ? 'text-white focus-visible:ring-2 focus-visible:ring-gold-soft' : 'text-[#172953]'}`}
+    >
+      <svg
+        className={`size-8 shrink-0 sm:size-9 ${isAdmin ? 'text-gold-soft' : isPublic ? 'max-[375px]:size-6' : ''}`}
+        viewBox="0 0 32 32"
+        fill="currentColor"
+        aria-hidden="true"
+        focusable="false"
       >
-        <div className="relative w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-navy flex items-center justify-center shrink-0 shadow-[0_6px_16px_rgba(30,58,138,0.18)]">
-          <svg
-            className="w-5 h-5 text-gold-light"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M3 21h18" />
-            <path d="M5 21V7l7-4 7 4v14" />
-            <path d="M9 21v-5a3 3 0 0 1 6 0v5" />
-            <path d="M12 3v4" />
-            <circle cx="12" cy="11" r="1.2" fill="currentColor" />
-          </svg>
-        </div>
-
-        <div className="flex flex-col justify-center">
-          <div className="flex items-center gap-1.5">
-            <span className="text-base sm:text-xl font-semibold tracking-tight text-navy font-serif leading-none">
-              Roomly
-            </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-gold shrink-0" />
-          </div>
-          <span className="hidden sm:block text-[10px] font-semibold text-slate-500 uppercase tracking-[0.16em] mt-1 leading-none">
-            {isID ? 'Hotel & Resor' : 'Hotels & Resorts'}
+        <path fillRule="evenodd" d="M5 4h11.2c5.55 0 9.3 3.5 9.3 8.4 0 4.6-3.2 7.9-8 8.45H11V28H5V4Zm6 5.1V16h4.8c2.4 0 3.85-1.3 3.85-3.45S18.2 9.1 15.8 9.1H11ZM22.9 20.8 28 28h-6.9L17 22.8c2.2-.18 4.23-.9 5.9-2Z" />
+      </svg>
+      <span className="flex flex-col">
+        <span className={`font-sans text-[25px] leading-none font-semibold tracking-[-0.035em] sm:text-[29px] ${isPublic ? 'max-[375px]:text-[21px]' : ''}`}>Roomly</span>
+        {isAdmin && (
+          <span className="mt-0.5 text-[10px] leading-none font-medium text-slate-200">
+            {isID ? 'Panel Admin' : 'Admin Panel'}
           </span>
-        </div>
-      </motion.div>
+        )}
+      </span>
     </Link>
   );
-};
+}

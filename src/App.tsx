@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Header } from './components/layout/Header';
@@ -21,22 +21,37 @@ import { AdminNotificationsPage } from './pages/AdminNotificationsPage';
 import { HousekeepingPage } from './pages/HousekeepingPage';
 import { BookingCheckoutPage } from './pages/BookingCheckoutPage';
 import { InvoiceModal } from './components/booking/InvoiceModal';
+import { getPaymentReturnOrder, PaymentReturnFeedback } from './components/booking/PaymentReturnFeedback';
 import { AuthModal } from './components/auth/AuthModal';
+import { AccountAccessGuard } from './components/auth/AccountAccessGuard';
+import { LogoutConfirmDialog } from './components/auth/LogoutConfirmDialog';
+import { AuthNoticeKind, AuthSessionNotice } from './components/auth/AuthSessionNotice';
 import { HomeSkeleton } from './components/ui/HomeSkeleton';
+import { ExploreSkeleton } from './components/explore/ExploreSkeleton';
+import { BookingCheckoutSkeleton } from './components/booking/BookingCheckoutSkeleton';
 import { RoomDetailPageSkeleton } from './components/rooms/RoomDetailSkeleton';
+import { AdminWorkspaceSkeleton, WorkspaceHeaderSkeleton } from './components/admin/AdminSkeleton';
 
 import { bookingApi } from './api/bookings';
 import { mapBookingToUI } from './lib/adapters';
 import { useAuth } from './context/AuthContext';
 import { useHotelCatalog } from './hooks/useHotelCatalog';
 import { useUserData } from './hooks/useUserData';
-import { isCustomerOnlyPath, isOperationsRole, roleLandingPath, viewToPath } from './lib/routes';
+import { ADMIN_PATHS, isCustomerOnlyPath, isOperationsRole, roleLandingPath, viewToPath } from './lib/routes';
 import { DashboardView, Language, Hotel, RoomType, Booking } from './types';
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading, logoutRequested, isLoggingOut, logoutError, cancelLogout, logout, sessionEndReason } = useAuth();
+  const currentUserRef = useRef(user);
+  currentUserRef.current = user;
   const navigate = useNavigate();
   const location = useLocation();
+  const returnedPaymentOrder = getPaymentReturnOrder(location.search);
+  // Match the same case and trailing-slash variants as the router.
+  const pathname = location.pathname.replace(/\/+$/, '').toLowerCase() || '/';
+  const isAdminPath = pathname === ADMIN_PATHS.dashboard || pathname.startsWith(ADMIN_PATHS.dashboard + '/');
+  const isWorkspacePath = isAdminPath || pathname === ADMIN_PATHS.checkIn || pathname === ADMIN_PATHS.housekeeping;
+  const isCustomerPath = isCustomerOnlyPath(pathname);
 
   // Child components still navigate by menu id; this turns that id into a real URL.
   const goToView = (view: DashboardView) => navigate(viewToPath(view));
@@ -52,17 +67,21 @@ export default function App() {
   // Staff sessions run role-specific operations workspaces, so storefront-only
   // routes redirect to the first screen that role can actually operate.
   const isOperations = isOperationsRole(user?.role);
+  const workspaceRedirect = isOperations && isCustomerPath ? roleLandingPath(user?.role) : null;
   useEffect(() => {
-    if (isOperations && isCustomerOnlyPath(location.pathname)) {
-      navigate(roleLandingPath(user?.role), { replace: true });
-    }
-  }, [isOperations, location.pathname, navigate, user?.role]);
+    if (workspaceRedirect) navigate(workspaceRedirect, { replace: true });
+  }, [workspaceRedirect, location.pathname, navigate]);
+
+  const checkingWorkspace = authLoading && isWorkspacePath;
+  const checkingStorefront = authLoading && !user && isCustomerPath;
+  const pendingWorkspace = workspaceRedirect ?? (checkingWorkspace ? pathname : null);
 
   // Hotel catalog + lazy per-hotel detail enrichment.
   const {
     hotels,
     hotelsLoading,
     hotelsError,
+    refreshHotels,
     selectedHotelForModal,
     setSelectedHotelForModal,
     openHotelDetail,
@@ -81,27 +100,92 @@ export default function App() {
   // Modals
   const [activeInvoiceBooking, setActiveInvoiceBooking] = useState<Booking | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authReturnTo, setAuthReturnTo] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<AuthNoticeKind | null>(null);
+  const lastSessionNotice = useRef<AuthNoticeKind | null>(null);
   const [invoiceLookupError, setInvoiceLookupError] = useState<string | null>(null);
+
+  const openAuth = useCallback((returnTo: string | null = null) => {
+    setAuthReturnTo(returnTo);
+    setAuthNotice(null);
+    setShowAuthModal(true);
+  }, []);
+
+  const closeAuth = useCallback(() => {
+    setShowAuthModal(false);
+    setAuthReturnTo(null);
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      lastSessionNotice.current = null;
+      setAuthNotice(null);
+      return;
+    }
+    if (!sessionEndReason || lastSessionNotice.current === sessionEndReason) return;
+    lastSessionNotice.current = sessionEndReason;
+    setAuthNotice(sessionEndReason);
+    closeAuth();
+    setActiveInvoiceBooking(null);
+    setSelectedHotelForModal(null);
+    setInvoiceLookupError(null);
+    if (sessionEndReason === 'logout') navigate('/', { replace: true });
+  }, [user, sessionEndReason, closeAuth, navigate, setSelectedHotelForModal]);
+
+  useEffect(() => {
+    if (authNotice !== 'logout') return;
+    const timer = window.setTimeout(() => setAuthNotice(null), 6500);
+    return () => window.clearTimeout(timer);
+  }, [authNotice]);
+
+  useEffect(() => {
+    if (showAuthModal && authReturnTo && `${location.pathname}${location.search}` !== authReturnTo) closeAuth();
+  }, [location.pathname, location.search, showAuthModal, authReturnTo, closeAuth]);
+
+  const confirmLogout = async () => {
+    try { await logout(); } catch { /* The confirmation keeps the account and retry error visible. */ }
+  };
+
+  const accountPage = (feature: string, page: React.ReactNode) => (
+    <AccountAccessGuard language={language} feature={feature} onSignIn={() => openAuth(`${location.pathname}${location.search}`)}>{page}</AccountAccessGuard>
+  );
 
   const requireAuth = (action: () => void) => {
     if (!user) {
-      setShowAuthModal(true);
+      openAuth();
       return;
     }
     action();
   };
 
   const handleBookRoom = (hotel: Hotel, room: RoomType) => {
-    requireAuth(() => navigate(`/booking/${hotel.id}/${room.id}`));
+    const path = `/booking/${hotel.id}/${room.id}`;
+    setSelectedHotelForModal(null);
+    navigate(path);
+    if (!user) openAuth(path);
   };
 
   const {
     bookings,
     setBookings,
     refreshBookings,
+    bookingsLoading,
+    bookingsRefreshing,
+    bookingsError,
+    bookingsLoaded,
     notifications,
     refreshNotifications,
     wishlistIds,
+    wishlistHotels,
+    wishlistSavedAt,
+    wishlistLoading,
+    wishlistRefreshing,
+    wishlistLoaded,
+    wishlistError,
+    wishlistMutationError,
+    wishlistPendingIds,
+    refreshWishlist,
+    setWishlistSaved,
     handleToggleWishlist,
     handleMarkNotificationsRead,
     handleMarkNotificationRead,
@@ -112,6 +196,7 @@ export default function App() {
   // Complete Booking — BookingCheckoutPage already created the real booking (and
   // payment session) against Roomly; this just folds the result into local state.
   const handleCompleteBooking = (newBooking: Booking) => {
+    if (!user || currentUserRef.current !== user) return;
     setBookings((prev) => {
       const exists = prev.some((booking) => booking.id === newBooking.id);
       return exists
@@ -130,6 +215,8 @@ export default function App() {
   // be resolved we surface that — never a placeholder booking, because this
   // modal shows money and guest details that must be real.
   const handleOpenInvoiceByCode = async (bookingCode: string) => {
+    const owner = user;
+    if (!owner) return;
     setInvoiceLookupError(null);
 
     const found = bookings.find((b) => b.bookingCode === bookingCode);
@@ -140,6 +227,7 @@ export default function App() {
 
     try {
       const response = await bookingApi.getByCode(bookingCode);
+      if (currentUserRef.current !== owner) return;
       const hotel = hotelsRef.current?.find((h) => h.id === String(response.hotelId));
       setActiveInvoiceBooking(
         mapBookingToUI(response, {
@@ -149,6 +237,7 @@ export default function App() {
         })
       );
     } catch (err) {
+      if (currentUserRef.current !== owner) return;
       console.error('Failed to resolve booking by code', bookingCode, err);
       setInvoiceLookupError(
         language === 'ID'
@@ -158,10 +247,18 @@ export default function App() {
     }
   };
 
+  // The account list can arrive before the public catalog. Enrich on render so
+  // the correct hotel photos appear as soon as that catalog finishes loading.
+  const bookingHotels = new Map(hotels.map(hotel => [hotel.id, hotel]));
+  const bookingsForDisplay = bookings.map(booking => {
+    const hotel = bookingHotels.get(booking.hotelId);
+    return hotel ? { ...booking, hotelImage: hotel.image, hotelLocation: hotel.location, hotelAddress: hotel.address } : booking;
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans antialiased">
       {/* Top Navigation Header */}
-      <Header
+      {checkingWorkspace || checkingStorefront ? <WorkspaceHeaderSkeleton admin={isAdminPath} /> : <Header
         activeBookingsCount={activeBookingsCount}
         wishlistCount={wishlistIds.length}
         language={language}
@@ -175,11 +272,11 @@ export default function App() {
           setSelectedCity(city);
           goToView('explore');
         }}
-        onOpenAuth={() => setShowAuthModal(true)}
+        onOpenAuth={() => openAuth()}
         onOpenInvoiceByCode={handleOpenInvoiceByCode}
-      />
+      />}
 
-      {hotelsError && (
+      {hotelsError && !isWorkspacePath && !pendingWorkspace && !checkingStorefront && pathname !== '/wishlist' && pathname !== '/analytics' && (
         <div className="max-w-[1600px] mx-auto w-full px-4 sm:px-6 lg:px-8 pt-4">
           <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
             {language === 'ID'
@@ -206,10 +303,20 @@ export default function App() {
       {/* Full-Width Main Content Container */}
       <div className="flex-1 w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <main id="main-content" className="w-full h-full">
-        {hotelsLoading && hotels.length === 0 && !hotelsError ? (
-          location.pathname.startsWith('/hotel/') || location.pathname.startsWith('/booking/')
-            ? <RoomDetailPageSkeleton />
-            : <HomeSkeleton />
+        {pendingWorkspace ? (
+          <AdminWorkspaceSkeleton pathname={pendingWorkspace} isID={language === 'ID'} checking={checkingWorkspace} />
+        ) : checkingStorefront ? (
+          <div role="status" className="mx-auto max-w-lg py-12 text-center text-sm font-medium text-slate-600">
+            {language === 'ID' ? 'Memeriksa sesi Roomly…' : 'Checking your Roomly session…'}
+          </div>
+        ) : hotelsLoading && hotels.length === 0 && !hotelsError && !isWorkspacePath && !pathname.startsWith('/settings') && pathname !== '/bookings' && pathname !== '/wishlist' && pathname !== '/analytics' ? (
+          pathname.startsWith('/hotel/')
+            ? <RoomDetailPageSkeleton isID={language === 'ID'} />
+            : pathname.startsWith('/booking/')
+            ? <BookingCheckoutSkeleton isID={language === 'ID'} />
+            : pathname.startsWith('/explore')
+              ? <ExploreSkeleton isID={language === 'ID'} />
+              : <HomeSkeleton />
         ) : (
         <AnimatePresence mode="wait">
           <motion.div
@@ -232,7 +339,10 @@ export default function App() {
                     onNavigateTo={goToView}
                     language={language}
                     searchCity={selectedCity}
-                    onSearchCityChange={setSelectedCity}
+                    onSearchCityChange={(city) => {
+                      setSelectedCity(city);
+                      setSearchQuery('');
+                    }}
                     wishlistIds={wishlistIds}
                     onToggleWishlist={handleToggleWishlist}
                   />
@@ -259,46 +369,68 @@ export default function App() {
               <Route
                 path="/bookings"
                 element={
-                  <BookingsPage
-                    bookings={bookings}
+                  accountPage(language === 'ID' ? 'pesanan' : 'bookings', <BookingsPage
+                    bookings={bookingsForDisplay}
+                    bookingsLoading={bookingsLoading}
+                    bookingsRefreshing={bookingsRefreshing}
+                    bookingsError={bookingsError}
+                    bookingsLoaded={bookingsLoaded}
+                    onRefresh={refreshBookings}
                     onOpenInvoice={setActiveInvoiceBooking}
                     onCancelBooking={handleCancelBooking}
                     language={language}
-                  />
+                  />)
                 }
               />
 
               <Route
                 path="/wishlist"
                 element={
-                  <WishlistPage
+                  accountPage(language === 'ID' ? 'wishlist' : 'your wishlist', <WishlistPage
                     hotels={hotels}
+                    wishlistHotels={wishlistHotels}
                     wishlistIds={wishlistIds}
-                    onToggleWishlist={handleToggleWishlist}
+                    wishlistSavedAt={wishlistSavedAt}
+                    wishlistLoading={wishlistLoading}
+                    wishlistRefreshing={wishlistRefreshing}
+                    wishlistLoaded={wishlistLoaded}
+                    wishlistError={wishlistError}
+                    wishlistMutationError={wishlistMutationError}
+                    wishlistPendingIds={wishlistPendingIds}
+                    catalogLoading={hotelsLoading}
+                    catalogError={!!hotelsError}
+                    onRefresh={() => { void refreshWishlist(); refreshHotels(); }}
+                    onSetSaved={setWishlistSaved}
                     onSelectHotel={openHotelDetail}
                     language={language}
-                  />
+                  />)
                 }
               />
 
               <Route
                 path="/analytics"
                 element={
-                  <AnalyticsPage
-                    bookings={bookings}
+                  accountPage(language === 'ID' ? 'statistik akun' : 'account statistics', <AnalyticsPage
+                    bookings={bookingsForDisplay}
+                    hotels={hotels}
+                    bookingsLoading={bookingsLoading}
+                    bookingsRefreshing={bookingsRefreshing}
+                    bookingsLoaded={bookingsLoaded}
+                    bookingsError={bookingsError}
+                    onRefresh={refreshBookings}
                     language={language}
-                  />
+                  />)
                 }
               />
 
               <Route
                 path="/settings"
                 element={
-                  <SettingsPage
+                  accountPage(language === 'ID' ? 'pengaturan' : 'settings', <SettingsPage
                     language={language}
                     onLanguageChange={setLanguage}
-                    onOpenAuth={() => setShowAuthModal(true)}
-                  />
+                    onOpenAuth={() => openAuth('/settings')}
+                  />)
                 }
               />
 
@@ -320,17 +452,17 @@ export default function App() {
               <Route
                 path="/booking/:hotelId/:roomId"
                 element={
-                  <BookingCheckoutPage
+                  accountPage(language === 'ID' ? 'reservasi' : 'your reservation', <BookingCheckoutPage
                     hotels={hotels}
                     onCompleteBooking={handleCompleteBooking}
                     onBookingStatusChanged={refreshBookings}
                     language={language}
-                  />
+                  />)
                 }
               />
 
               {/* Role-specific staff workspaces. Each page also enforces its own access guard. */}
-              <Route path="/staff/check-in" element={<CheckInPage language={language} />} />
+              <Route path={ADMIN_PATHS.checkIn} element={<CheckInPage language={language} />} />
               <Route path="/staff/housekeeping" element={<HousekeepingPage language={language} />} />
 
               {/* ===== Admin console — every screen is ADMIN-gated inside itself,
@@ -364,7 +496,7 @@ export default function App() {
               <Route
                 path="/admin/reviews"
                 element={
-                  <AdminReviewsPage language={language} onOpenAuth={() => setShowAuthModal(true)} />
+                  <AdminReviewsPage language={language} hotels={hotels} onOpenAuth={() => setShowAuthModal(true)} />
                 }
               />
 
@@ -418,7 +550,15 @@ export default function App() {
 
       {/* Invoice Modal */}
       <AnimatePresence>
-        {activeInvoiceBooking && (
+        {user?.role === 'CUSTOMER' && returnedPaymentOrder && (
+          <PaymentReturnFeedback
+            key={`${user.userId}:${returnedPaymentOrder}`}
+            orderId={returnedPaymentOrder}
+            isID={language === 'ID'}
+            onStatusChanged={refreshBookings}
+          />
+        )}
+        {user && activeInvoiceBooking && (
           <InvoiceModal
             booking={activeInvoiceBooking}
             onClose={() => setActiveInvoiceBooking(null)}
@@ -428,8 +568,10 @@ export default function App() {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} language={language} />}
+        {showAuthModal && <AuthModal onClose={closeAuth} language={language} returnTo={authReturnTo} />}
       </AnimatePresence>
+      <LogoutConfirmDialog open={Boolean(user && logoutRequested)} language={language} user={user} busy={isLoggingOut} failed={Boolean(logoutError)} onCancel={cancelLogout} onConfirm={() => { void confirmLogout(); }} />
+      {authNotice && <AuthSessionNotice kind={authNotice} language={language} onDismiss={() => setAuthNotice(null)} onSignIn={() => openAuth(`${location.pathname}${location.search}`)} />}
     </div>
   );
 }

@@ -41,7 +41,7 @@ export const HotelGallery: React.FC<{
   return (
     <>
       {/* ===== HERO GALLERY ===== */}
-      <div className="relative h-56 sm:h-72 w-full shrink-0 bg-navy-soft group">
+      <div className="relative h-48 sm:h-52 w-full shrink-0 overflow-hidden bg-navy-soft group">
         <motion.img
           key={selectedImgIdx}
           src={images[selectedImgIdx]}
@@ -58,14 +58,18 @@ export const HotelGallery: React.FC<{
         <div className="absolute top-3 left-3 right-3 flex items-center justify-between z-20">
           <div className="flex items-center gap-2">
             {isBestSeller && (
-              <span className="px-2.5 py-1 rounded-full bg-white/95 backdrop-blur-md text-[10px] font-bold text-slate-900 shadow-sm uppercase tracking-wider flex items-center gap-1">
+              <span className="hidden lg:inline-flex px-2.5 py-1 rounded-full bg-white/95 backdrop-blur-md text-[10px] font-bold text-slate-900 shadow-sm uppercase tracking-wider items-center gap-1">
                 <Star className="w-3 h-3 fill-gold text-gold" />
                 {isID ? 'Terlaris' : 'Best Seller'}
               </span>
             )}
-            <span className="px-2.5 py-1 rounded-full bg-white/95 backdrop-blur-md text-[10px] font-semibold text-slate-700 shadow-sm">
-              {images.length} {isID ? 'foto' : 'photos'}
-            </span>
+            <button type="button" onClick={() => setIsGalleryOpen(true)}
+              aria-label={isID ? 'Lihat semua foto hotel' : 'View all hotel photos'}
+              className="min-h-11 px-3 rounded-full bg-white/95 text-xs font-semibold text-navy shadow-sm hover:bg-white transition-colors duration-200 flex items-center gap-2 cursor-pointer">
+              <Maximize2 className="w-3.5 h-3.5" aria-hidden />
+              <span>{images.length} {isID ? 'foto' : 'photos'}</span>
+              <span className="hidden sm:inline text-slate-500">· {isID ? 'Lihat semua' : 'View all'}</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -91,13 +95,13 @@ export const HotelGallery: React.FC<{
         </div>
 
         {/* Bottom Info Overlay */}
-        <div className="absolute bottom-4 left-4 right-4 z-10">
+        <div className="absolute bottom-4 left-4 right-4 z-10 pointer-events-none">
           <motion.div initial={{ y: 15, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.2 }}>
             <div className="flex items-center gap-2 mb-1">
               <StarRating rating={hotel.stars} />
               <span className="text-white/80 text-[10px] font-medium">{hotel.category}</span>
             </div>
-            <h1 id="hotel-detail-title" className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-0.5 font-serif">
+            <h1 id="hotel-detail-title" title={hotel.name} className="text-xl sm:text-2xl font-semibold text-white tracking-tight mb-0.5 font-serif line-clamp-2 leading-tight">
               {hotel.name}
             </h1>
             <div className="flex items-center gap-1.5 text-white/80">
@@ -111,36 +115,31 @@ export const HotelGallery: React.FC<{
         {images.length > 1 && (
           <>
             <button type="button" aria-label={isID ? 'Foto sebelumnya' : 'Previous photo'} onClick={() => setSelectedImgIdx(p => Math.max(0, p - 1))}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/95 flex items-center justify-center text-navy shadow-sm cursor-pointer">
+              className="absolute left-3 top-[42%] -translate-y-1/2 w-11 h-11 rounded-full bg-white/95 flex items-center justify-center text-navy shadow-sm cursor-pointer">
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button type="button" aria-label={isID ? 'Foto berikutnya' : 'Next photo'} onClick={() => setSelectedImgIdx(p => Math.min(images.length - 1, p + 1))}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-white/95 flex items-center justify-center text-navy shadow-sm cursor-pointer">
+              className="absolute right-3 top-[42%] -translate-y-1/2 w-11 h-11 rounded-full bg-white/95 flex items-center justify-center text-navy shadow-sm cursor-pointer">
               <ChevronRight className="w-5 h-5" />
             </button>
           </>
         )}
 
-        {/* Expand Gallery */}
-        <button type="button" onClick={() => setIsGalleryOpen(true)}
-          className="absolute bottom-4 right-4 min-h-9 px-3 py-1.5 rounded-full bg-white/95 text-[12px] font-semibold text-navy shadow-sm hover:bg-white transition-colors duration-200 z-10 flex items-center gap-1 cursor-pointer">
-          <Maximize2 className="w-3 h-3" />
-          {isID ? 'Lihat Semua' : 'View All'}
-        </button>
-
         {/* Thumbnail Strip */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 z-10">
-          {images.slice(0, 5).map((img, idx) => (
-            <button key={idx} onClick={() => setSelectedImgIdx(idx)}
-              className={`w-10 h-7 rounded-md overflow-hidden border-2 transition-all ${
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 z-10">
+          {images.slice(0, 4).map((img, idx) => (
+            <button key={idx} type="button" onClick={() => setSelectedImgIdx(idx)}
+              aria-label={isID ? `Lihat foto hotel ${idx + 1}` : `View hotel photo ${idx + 1}`}
+              aria-pressed={selectedImgIdx === idx}
+              className={`w-11 h-11 rounded-lg overflow-hidden border-2 transition-all ${
                 selectedImgIdx === idx ? 'border-white shadow-md scale-105' : 'border-white/40 opacity-70 hover:opacity-100'
               }`}>
               <img src={img} alt="" onError={applyImageFallback} className="w-full h-full object-cover" />
             </button>
           ))}
-          {images.length > 5 && (
-            <button onClick={() => setIsGalleryOpen(true)} className="w-10 h-7 rounded-md bg-slate-900/60 flex items-center justify-center text-white text-[10px] font-bold">
-              +{images.length - 5}
+          {images.length > 4 && (
+            <button type="button" onClick={() => setIsGalleryOpen(true)} aria-label={isID ? 'Lihat foto hotel lainnya' : 'View more hotel photos'} className="w-11 h-11 rounded-lg bg-slate-900/70 backdrop-blur-sm flex items-center justify-center text-white text-xs font-semibold cursor-pointer">
+              +{images.length - 4}
             </button>
           )}
         </div>

@@ -1,174 +1,8 @@
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import { ChevronRight, Heart, MapPin, Star } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useReducedMotion } from 'motion/react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, Building2 } from 'lucide-react';
 import { DashboardView, Hotel, Language } from '../../types';
-import { applyImageFallback } from '../../lib/imageFallback';
-
-/* ------------------------------------------------------------------ */
-/*  PREMIUM HOTEL CARD                                                */
-/* ------------------------------------------------------------------ */
-
-interface PremiumHotelCardProps {
-  hotel: Hotel;
-  index: number;
-  isWishlisted: boolean;
-  onToggleWishlist: (hotelId: string) => void;
-  onSelect: (hotel: Hotel) => void;
-  language: Language;
-}
-
-export const PremiumHotelCard: React.FC<PremiumHotelCardProps> = React.memo(({
-  hotel,
-  index,
-  isWishlisted,
-  onToggleWishlist,
-  onSelect,
-  language
-}) => {
-  const isID = language === 'ID';
-  const [imgLoaded, setImgLoaded] = useState(false);
-
-  const formatPrice = (price: number) =>
-    isID
-      ? `Rp ${price.toLocaleString('id-ID')}`
-      : `$${price.toLocaleString('en-US')}`;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: '50px' }}
-      transition={{
-        duration: 0.4,
-        delay: Math.min(index, 6) * 0.05,
-        ease: 'easeOut'
-      }}
-      className="group relative flex flex-col rounded-3xl bg-white border border-[#E9EEF5] hover:border-blue-100 overflow-hidden cursor-pointer shadow-[0_8px_28px_rgba(30,58,138,0.06)] hover:shadow-[0_16px_40px_rgba(30,58,138,0.12)] will-change-transform transform-gpu hover:-translate-y-1 transition-all duration-200 ease-out"
-      onClick={() => onSelect(hotel)}
-    >
-      {/* Image Area */}
-      <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
-        {/* Skeleton loader */}
-        {!imgLoaded && (
-          <div className="absolute inset-0 bg-slate-100 animate-pulse" />
-        )}
-
-        <img
-          src={hotel.image}
-          onError={applyImageFallback}
-          alt={hotel.name}
-          loading="lazy"
-          decoding="async"
-          onLoad={() => setImgLoaded(true)}
-          className={`absolute inset-0 w-full h-full object-cover transition-transform transition-opacity duration-500 ease-out group-hover:scale-105 ${
-            imgLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
-        />
-
-        {/* Top overlay gradient */}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/30 via-transparent to-transparent" />
-
-        {/* Wishlist Button */}
-        <button
-          type="button"
-          aria-pressed={isWishlisted}
-          aria-label={isID ? (isWishlisted ? 'Hapus dari wishlist' : 'Simpan ke wishlist') : (isWishlisted ? 'Remove from wishlist' : 'Save to wishlist')}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleWishlist(hotel.id);
-          }}
-          className="absolute top-3 right-3 w-11 h-11 rounded-full bg-white/95 backdrop-blur-sm flex items-center justify-center shadow-sm hover:bg-white transition-colors duration-200 z-10 cursor-pointer"
-        >
-          <Heart
-            className={`w-4 h-4 transition-colors duration-300 ${
-              isWishlisted
-                ? 'text-rose-500 fill-rose-500'
-                : 'text-slate-400 hover:text-rose-400'
-            }`}
-          />
-        </button>
-
-        {/* Rating Badge */}
-        <div className="absolute top-4 left-4 flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-white/90 backdrop-blur-sm shadow-sm">
-          <Star className="w-3 h-3 text-gold fill-gold" />
-          <span className="text-[11px] font-bold text-slate-900">
-            {hotel.rating.toFixed(1)}
-          </span>
-          {hotel.reviewsCount !== undefined && (
-            <span className="text-[10px] text-slate-400 font-medium">
-              ({hotel.reviewsCount.toLocaleString(isID ? 'id-ID' : 'en-US')})
-            </span>
-          )}
-        </div>
-
-        {/* Bottom location chip */}
-        <div className="absolute bottom-3 left-3">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-sm">
-            <MapPin className="w-3 h-3 text-slate-500" aria-hidden />
-            <span className="text-[12px] font-medium text-slate-700">{hotel.location}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Content Area */}
-      <div className="flex flex-col flex-1 p-5 space-y-3">
-        {/* Hotel Name */}
-        <div className="space-y-1">
-          <h3 className="text-[15px] font-semibold text-[#1E3A8A] leading-snug tracking-tight group-hover:text-[#1e40af] transition-colors duration-200 line-clamp-1">
-            <span className="font-serif italic font-normal">{hotel.name}</span>
-          </h3>
-          <p className="text-[12px] text-slate-600 font-medium flex items-center gap-1">
-            <MapPin className="w-3 h-3" aria-hidden />
-            {hotel.location}
-          </p>
-        </div>
-
-        {/* Tags */}
-        {hotel.category && (
-          <div className="flex flex-wrap gap-1.5">
-            <span
-              className="px-2 py-0.5 rounded-md bg-[#E9EEF5] text-[11px] font-medium text-slate-600 border border-transparent"
-            >
-              {hotel.category}
-            </span>
-          </div>
-        )}
-
-        {/* Price & CTA */}
-        <div className="pt-3 mt-auto border-t border-slate-50 flex items-end justify-between">
-          <div>
-            <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wider">
-              {isID ? 'per malam' : 'per night'}
-            </p>
-            <p className="text-lg font-semibold text-[#1E3A8A] tracking-tight">
-              {formatPrice(hotel.pricePerNight)}
-            </p>
-          </div>
-          <div className="opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-500">
-            <div className="w-9 h-9 rounded-full bg-[#1E3A8A] flex items-center justify-center">
-              <ChevronRight className="w-4 h-4 text-white" aria-hidden />
-            </div>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}, (prevProps, nextProps) => {
-  return (
-    prevProps.hotel.id === nextProps.hotel.id &&
-    prevProps.isWishlisted === nextProps.isWishlisted &&
-    prevProps.language === nextProps.language &&
-    prevProps.index === nextProps.index &&
-    prevProps.hotel.pricePerNight === nextProps.hotel.pricePerNight &&
-    prevProps.hotel.rating === nextProps.hotel.rating &&
-    prevProps.hotel.image === nextProps.hotel.image &&
-    prevProps.hotel.gallery === nextProps.hotel.gallery
-  );
-});
-
-/* ------------------------------------------------------------------ */
-/*  RECOMMENDED HOTELS SECTION                                        */
-/* ------------------------------------------------------------------ */
+import { PremiumHotelCard } from './PremiumHotelCard';
 
 interface RecommendedHotelsProps {
   hotels: Hotel[];
@@ -181,80 +15,115 @@ interface RecommendedHotelsProps {
 }
 
 export const RecommendedHotels: React.FC<RecommendedHotelsProps> = ({
-  hotels,
-  isID,
-  onNavigateTo,
-  onSelectHotel,
-  onToggleWishlist,
-  wishlistedIds,
-  language
+  hotels, isID, onNavigateTo, onSelectHotel, onToggleWishlist, wishlistedIds, language,
 }) => {
+  const reduceMotion = useReducedMotion();
+  const railRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ first: 1, last: 1, canPrev: false, canNext: false });
+
+  const updatePosition = useCallback(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const bounds = rail.getBoundingClientRect();
+    // A card only counts once most of it shows, so the sliver peeking in on phones doesn't.
+    const visible = [...rail.children].map((card, index) => ({ index, rect: card.getBoundingClientRect() }))
+      .filter(({ rect }) => Math.min(rect.right, bounds.right) - Math.max(rect.left, bounds.left) > rect.width * 0.6);
+    const next = {
+      first: (visible[0]?.index ?? 0) + 1,
+      last: (visible[visible.length - 1]?.index ?? 0) + 1,
+      canPrev: rail.scrollLeft > 3,
+      canNext: rail.scrollWidth - rail.clientWidth - rail.scrollLeft > 3,
+    };
+    setPosition(current => Object.keys(next).every(key => current[key as keyof typeof current] === next[key as keyof typeof next]) ? current : next);
+  }, []);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    updatePosition();
+    const observer = new ResizeObserver(updatePosition);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, [hotels.length, updatePosition]);
+
+  const move = (direction: -1 | 1) => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const gap = parseFloat(getComputedStyle(rail).columnGap) || 0;
+    rail.scrollBy({ left: direction * (rail.clientWidth + gap), behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
+
   return (
-    <section className="space-y-8 sm:space-y-10" aria-labelledby="recommended-heading">
-      <div className="flex items-end justify-between gap-4">
-        <div className="space-y-2">
-          <p className="text-[12px] font-semibold text-gold uppercase tracking-[0.16em]">
-            {isID ? 'Pilihan kami' : 'Handpicked'}
-          </p>
-          <h2 id="recommended-heading" className="font-serif text-3xl sm:text-4xl lg:text-[2.75rem] text-[#1E3A8A] tracking-tight leading-[1.15]">
-            {isID ? 'Hotel rekomendasi' : 'Luxury recommendations'}
+    <section className="recommended-hotels-section -mx-4 overflow-hidden rounded-[28px] bg-[#10253f] bg-[radial-gradient(110%_75%_at_88%_-12%,rgba(228,192,120,0.14),transparent_62%),radial-gradient(85%_70%_at_-5%_112%,rgba(30,58,138,0.42),transparent_64%)] px-4 pb-6 pt-7 sm:mx-0 sm:rounded-[32px] sm:px-7 sm:pb-7 sm:pt-9 lg:px-9 lg:pt-10" aria-labelledby="recommended-heading" data-recommended-hotels>
+      <div className="mb-7 flex flex-col justify-between gap-5 lg:mb-8 lg:flex-row lg:items-end lg:gap-10">
+        <div>
+          <p className="mb-3 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.19em] text-gold-light"><span className="h-px w-7 bg-gold-light/60" aria-hidden />{isID ? 'Rekomendasi Roomly' : 'The Roomly collection'}</p>
+          <h2 id="recommended-heading" className="font-serif text-[30px] leading-[1.2] tracking-[-0.035em] text-white sm:text-[38px] lg:text-[42px]">
+            {isID ? <>Tempat istimewa,<br /><span className="italic text-gold-light">untuk momenmu.</span></> : <>Exceptional stays.<br /><span className="italic text-gold-light">Memorable moments.</span></>}
           </h2>
         </div>
-
-        <button
-          type="button"
-          onClick={() => onNavigateTo('explore')}
-          className="group hidden sm:inline-flex min-h-11 items-center gap-2 text-[14px] font-semibold text-slate-600 hover:text-[#1E3A8A] transition-colors duration-200 cursor-pointer"
-        >
-          <span>{isID ? 'Lihat Semua' : 'View All'}</span>
-          <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
-        </button>
-      </div>
-
-      {/* Hotels Grid */}
-      {hotels.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="py-24 text-center bg-white rounded-[2rem] border border-[#E9EEF5]"
-        >
-          <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-slate-50 flex items-center justify-center">
-            <Star className="w-6 h-6 text-slate-300" />
-          </div>
-          <p className="text-sm text-slate-600 font-medium">
-            {isID ? 'Belum ada data hotel tersedia.' : 'No hotels available yet.'}
-          </p>
-          <p className="text-xs text-slate-500 mt-1.5">
-            {isID ? 'Silakan kembali lagi nanti.' : 'Please check back later.'}
-          </p>
-        </motion.div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {hotels.map((hotel, idx) => (
-            <PremiumHotelCard
-              key={hotel.id}
-              hotel={hotel}
-              index={idx}
-              isWishlisted={wishlistedIds.includes(hotel.id)}
-              onToggleWishlist={onToggleWishlist}
-              onSelect={onSelectHotel}
-              language={language}
-            />
-          ))}
+        <div className="max-w-[350px]">
+          <p className="text-[15px] leading-6 text-white/80">{isID ? 'Dari vila dengan pemandangan laut hingga jeda nyaman di tengah kota. Temukan tempat yang cocok untukmu.' : 'From sea-view villas to a comfortable pause in the city. Find a place that feels right for you.'}</p>
+          <button type="button" onClick={() => onNavigateTo('explore')} className="recommended-hotels-chrome mt-3 inline-flex min-h-11 cursor-pointer items-center gap-2.5 border-b border-gold-light/35 text-[13px] font-semibold text-gold-light transition-colors duration-200 hover:border-gold-light hover:text-white">
+            {isID ? 'Lihat semua penginapan' : 'Explore all stays'}<ArrowUpRight className="size-4" aria-hidden />
+          </button>
         </div>
-      )}
-
-      {/* Mobile View All */}
-      <div className="sm:hidden flex justify-center">
-        <button
-          type="button"
-          onClick={() => onNavigateTo('explore')}
-          className="group inline-flex min-h-11 items-center gap-2 text-[14px] font-semibold text-slate-600 hover:text-[#1E3A8A] transition-colors duration-200 cursor-pointer"
-        >
-          <span>{isID ? 'Lihat Semua Hotel' : 'View All Hotels'}</span>
-          <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform duration-300" />
-        </button>
       </div>
+
+      {hotels.length === 0 ? (
+        <div className="rounded-2xl border border-white/15 bg-white/5 px-6 py-12 text-center"><Building2 className="mx-auto mb-3 size-7 text-gold-light" aria-hidden /><p className="text-sm font-semibold text-white">{isID ? 'Pilihan penginapan sedang disiapkan' : 'Our collection is being prepared'}</p><p className="mt-2 text-xs text-white/65">{isID ? 'Kembali lagi untuk menemukan tempat menginap berikutnya.' : 'Come back to find your next place to stay.'}</p></div>
+      ) : (
+        <>
+          <div
+            ref={railRef}
+            className="recommended-hotels-rail recommended-hotels-chrome relative -mx-4 grid auto-cols-[86%] grid-flow-col items-stretch gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-px-4 snap-x snap-mandatory px-4 sm:mx-0 sm:auto-cols-[calc((100%_-_1.25rem)/2)] sm:scroll-px-0 sm:gap-5 sm:rounded-[24px] sm:px-0 lg:auto-cols-[calc((100%_-_2.5rem)/3)] xl:auto-cols-[calc((100%_-_3.75rem)/4)]"
+            role="region"
+            aria-roledescription="carousel"
+            aria-label={isID ? 'Koleksi penginapan rekomendasi' : 'Recommended stays collection'}
+            tabIndex={0}
+            onScroll={updatePosition}
+            onKeyDown={event => {
+              if (event.target !== event.currentTarget) return;
+              if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                event.preventDefault();
+                move(event.key === 'ArrowRight' ? 1 : -1);
+              } else if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault();
+                event.currentTarget.scrollTo({ left: event.key === 'Home' ? 0 : event.currentTarget.scrollWidth, behavior: reduceMotion ? 'auto' : 'smooth' });
+              }
+            }}
+          >
+            {hotels.map((hotel, index) => (
+              <div
+                key={hotel.id}
+                className="min-w-0 snap-start"
+                role="group"
+                aria-roledescription="slide"
+                aria-label={`${index + 1} ${isID ? 'dari' : 'of'} ${hotels.length}`}
+                onFocusCapture={event => {
+                  const rail = railRef.current;
+                  if (!rail) return;
+                  const card = event.currentTarget.getBoundingClientRect();
+                  const bounds = rail.getBoundingClientRect();
+                  if (card.left < bounds.left - 2 || card.right > bounds.right + 2) rail.scrollTo({ left: rail.scrollLeft + card.left - bounds.left, behavior: 'instant' });
+                }}
+              >
+                <PremiumHotelCard hotel={hotel} index={index} isWishlisted={wishlistedIds.includes(hotel.id)} onToggleWishlist={onToggleWishlist} onSelect={onSelectHotel} language={language} />
+              </div>
+            ))}
+          </div>
+          <div className="relative mt-6 h-px bg-white/15" aria-hidden>
+            <span className="absolute inset-x-0 -top-px block h-0.5 origin-left rounded-full bg-gold-light transition-transform duration-300 ease-out motion-reduce:transition-none" style={{ transform: `scaleX(${position.last / hotels.length})` }} />
+          </div>
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <div aria-live="polite" aria-atomic="true" className="text-xs text-white/65"><span className="font-semibold tabular-nums text-white">{String(position.first).padStart(2, '0')} — {String(position.last).padStart(2, '0')}</span><span className="mx-2 text-white/30">/</span>{hotels.length} {isID ? 'penginapan pilihan' : 'selected stays'}</div>
+            <div className="flex shrink-0 gap-2.5">
+              <button type="button" onClick={() => move(-1)} disabled={!position.canPrev} aria-label={isID ? 'Penginapan sebelumnya' : 'Previous stays'} className="recommended-hotels-chrome flex size-11 cursor-pointer items-center justify-center rounded-full border border-white/25 text-white transition-colors duration-200 hover:border-gold-light hover:bg-white/10 disabled:cursor-default disabled:opacity-30"><ArrowLeft className="size-[18px]" aria-hidden /></button>
+              <button type="button" onClick={() => move(1)} disabled={!position.canNext} aria-label={isID ? 'Penginapan berikutnya' : 'Next stays'} className="recommended-hotels-chrome flex size-11 cursor-pointer items-center justify-center rounded-full border border-gold-light bg-gold-light text-[#10253f] transition-colors duration-200 hover:border-white hover:bg-white disabled:cursor-default disabled:opacity-30"><ArrowRight className="size-[18px]" aria-hidden /></button>
+            </div>
+          </div>
+        </>
+      )}
     </section>
   );
 };

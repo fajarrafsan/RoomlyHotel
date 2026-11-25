@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'motion/react';
-import { X, Loader2, AlertCircle, Trash2, ImageIcon, Building, Star, Upload } from 'lucide-react';
+import { OperationsDialog } from './OperationsDialog';
+import { Loader2, AlertCircle, Trash2, ImageIcon, Building, Star, Upload } from 'lucide-react';
 import { adminApi } from '../../api/admin';
 import { ApiError } from '../../lib/http';
 import { FacilityResponse, HotelImageResponse, HotelResponse } from '../../types/api/hotel';
@@ -75,30 +75,10 @@ export const HotelMediaModal: React.FC<HotelMediaModalProps> = ({ isID, hotel, o
   const effectiveIds = draftIds ?? assignedIds;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm p-4 sm:p-8">
-      <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-3xl bg-white rounded-3xl border border-slate-100 shadow-2xl my-auto"
-      >
-        <div className="flex items-start justify-between gap-4 p-6 border-b border-slate-100">
-          <div className="min-w-0">
-            <h3 className="text-base font-semibold text-slate-900 tracking-tight">
-              {isID ? 'Media & Fasilitas' : 'Media & Facilities'} · {hotel.name}
-            </h3>
-            <p className="text-[11px] text-slate-400 font-light mt-0.5 font-mono">
-              /api/admin/hotels/{hotel.id}/…
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer shrink-0"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="px-6 pt-4 flex items-center gap-1 border-b border-slate-100">
+    <OperationsDialog title={isID ? 'Foto & fasilitas' : 'Photos & facilities'} description={hotel.name}
+      isID={isID} size="form" busy={busy} onClose={onClose}>
+      <div className="min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center gap-1 border-b border-slate-100">
           {([
             { key: 'images' as Tab, label: isID ? 'Foto' : 'Photos', icon: ImageIcon },
             { key: 'facilities' as Tab, label: isID ? 'Fasilitas' : 'Facilities', icon: Building },
@@ -107,8 +87,10 @@ export const HotelMediaModal: React.FC<HotelMediaModalProps> = ({ isID, hotel, o
             return (
               <button
                 key={t.key}
+                type="button"
+                aria-pressed={tab === t.key}
                 onClick={() => setTab(t.key)}
-                className={`px-3.5 py-2 rounded-t-xl text-[12px] font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 border-b-2 ${
+                className={`min-h-11 px-3 py-2 rounded-t-xl text-[12px] font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 border-b-2 ${
                   tab === t.key ? 'text-slate-900 border-slate-900' : 'text-slate-400 border-transparent hover:text-slate-700'
                 }`}
               >
@@ -119,7 +101,7 @@ export const HotelMediaModal: React.FC<HotelMediaModalProps> = ({ isID, hotel, o
           })}
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="min-w-0 space-y-4">
           {error && (
             <p className="text-[12px] text-rose-600 font-medium flex items-start gap-1.5">
               <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -273,7 +255,7 @@ export const HotelMediaModal: React.FC<HotelMediaModalProps> = ({ isID, hotel, o
             </>
           )}
         </div>
-      </motion.div>
-    </div>
+      </div>
+    </OperationsDialog>
   );
 };

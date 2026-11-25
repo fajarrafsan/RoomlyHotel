@@ -89,8 +89,8 @@ export const HotelFormModal: React.FC<HotelFormModalProps> = ({ isID, hotel, onC
   return (
     <AdminFormModal
       isID={isID}
-      title={isEdit ? (isID ? `Ubah Properti · ${hotel.name}` : `Edit Property · ${hotel.name}`) : (isID ? 'Properti Baru' : 'New Property')}
-      subtitle={isEdit ? `PUT /api/admin/hotels/${hotel.id}` : 'POST /api/admin/hotels'}
+      title={isEdit ? (isID ? 'Ubah properti' : 'Edit property') : (isID ? 'Tambah properti' : 'Add property')}
+      subtitle={hotel?.name}
       submitting={submitting}
       error={error}
       submitLabel={isEdit ? (isID ? 'Simpan Perubahan' : 'Save Changes') : (isID ? 'Buat Properti' : 'Create Property')}
@@ -108,8 +108,8 @@ export const HotelFormModal: React.FC<HotelFormModalProps> = ({ isID, hotel, onC
           onChange={(e) => set('propertyType', e.target.value as PropertyType)}
           options={[
             { value: 'HOTEL', label: 'Hotel' },
-            { value: 'VILLA', label: 'Villa' },
-            { value: 'APARTMENT', label: 'Apartment' },
+            { value: 'VILLA', label: isID ? 'Vila' : 'Villa' },
+            { value: 'APARTMENT', label: isID ? 'Apartemen' : 'Apartment' },
           ]}
         />
       </div>
@@ -140,9 +140,9 @@ export const HotelFormModal: React.FC<HotelFormModalProps> = ({ isID, hotel, onC
             value={form.status}
             onChange={(e) => set('status', e.target.value as HotelStatus)}
             options={[
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'INACTIVE', label: 'Inactive' },
-              { value: 'UNDER_MAINTENANCE', label: 'Under maintenance' },
+              { value: 'ACTIVE', label: isID ? 'Aktif' : 'Active' },
+              { value: 'INACTIVE', label: isID ? 'Nonaktif' : 'Inactive' },
+              { value: 'UNDER_MAINTENANCE', label: isID ? 'Dalam perawatan' : 'Under maintenance' },
             ]}
           />
         )}

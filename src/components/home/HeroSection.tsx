@@ -1,347 +1,182 @@
-import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import {
-  Sparkles, MapPin, Search, Users, User, Baby,
-  Building, Building2, Home, CalendarDays, ArrowRight,
-  Minus, Plus, ChevronDown
-} from 'lucide-react';
-import { Language, DashboardView } from '../../types';
-import { blurUp, staggerContainer, easeOutSoft } from './animations';
-import { pillTween } from '../../lib/motion';
-import { getTodayDateString, getTomorrowDateString } from '../../lib/utils';
+import React, { useId, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { ArrowRight, ArrowUpRight, MapPin, Search } from 'lucide-react';
+import { Language, DashboardView, Hotel } from '../../types';
+import { easeOutSoft } from './animations';
+import { applyImageFallback } from '../../lib/imageFallback';
+import { VIEW_PATHS } from '../../lib/routes';
+import { CityDestinationOption, CityDestinationPicker } from './CityDestinationPicker';
+import { PropertyFilter, PropertyTypePicker } from './PropertyTypePicker';
 
 interface HeroSectionProps {
   language: Language;
+  hotels: Hotel[];
+  quickCities: string[];
   searchCity: string;
   onSearchCityChange: (city: string) => void;
   onNavigateTo: (view: DashboardView) => void;
 }
 
-const QUICK_CITIES = ['Bali', 'Jakarta', 'Bandung', 'Tokyo'] as const;
+const scenes = [
+  { place: 'Mandalika, Lombok', name: 'Mandalika Sagara Villas', image: '/images/seed/hotels/mandalika-sagara.png', id: 'Vila privat di perbukitan Mandalika menghadap teluk dan laut biru', en: 'Private hillside villas in Mandalika overlooking a turquoise bay' },
+  { place: 'Belitung', name: 'Samudra Belitung Resort', image: '/images/seed/hotels/samudra-belitung.png', id: 'Resor tropis di pantai Belitung dengan pasir putih dan bebatuan granit', en: 'A tropical Belitung resort with white sand and granite rocks' },
+  { place: 'Bandung', name: 'Arunika Bandung', image: '/images/seed/hotels/arunika-bandung.png', id: 'Penginapan di Bandung dikelilingi pepohonan dan perbukitan hijau', en: 'A Bandung retreat surrounded by trees and green hills' },
+];
 
 export const HeroSection: React.FC<HeroSectionProps> = ({
-  language, searchCity, onSearchCityChange, onNavigateTo
+  language, hotels, quickCities, searchCity, onSearchCityChange, onNavigateTo,
 }) => {
   const isID = language === 'ID';
   const reduceMotion = useReducedMotion();
-  const [activeCategoryTab, setActiveCategoryTab] = useState<'hotel' | 'villa' | 'apartment'>('hotel');
-  const [heroDestination, setHeroDestination] = useState<string>(searchCity || 'Jakarta');
-  const [checkInDate, setCheckInDate] = useState<string>(getTodayDateString());
-  const [checkOutDate, setCheckOutDate] = useState<string>(getTomorrowDateString());
-  const [adultCount, setAdultCount] = useState<number>(2);
-  const [childCount, setChildCount] = useState<number>(0);
-  const [showGuestDropdown, setShowGuestDropdown] = useState(false);
+  const navigate = useNavigate();
+  const inputId = useId();
+  const typeId = useId();
+  const [propertyType, setPropertyType] = useState<PropertyFilter>('ALL');
+  const [destination, setDestination] = useState(searchCity);
+  const [activePicker, setActivePicker] = useState<'city' | 'type' | null>(null);
+  const [sceneIndex, setSceneIndex] = useState(0);
+  const scene = scenes[sceneIndex];
+  const cityGroups = new Map<string, CityDestinationOption>();
+  for (const hotel of hotels) {
+    const city = hotel.city.trim();
+    if (!city) continue;
+    const key = city.toLowerCase();
+    const existing = cityGroups.get(key);
+    if (existing) existing.count += 1;
+    else cityGroups.set(key, { city, province: hotel.province, count: 1 });
+  }
+  const cities = [...cityGroups.values()].sort((a, b) => a.city.localeCompare(b.city));
 
-  const handleHeroSearch = () => {
-    onSearchCityChange(heroDestination || 'Jakarta');
-    onNavigateTo('explore');
+  const search = (city = destination) => {
+    setActivePicker(null);
+    onSearchCityChange(city.trim());
+    if (propertyType === 'ALL') {
+      onNavigateTo('explore');
+    } else {
+      navigate({ pathname: VIEW_PATHS.explore, search: new URLSearchParams({ propertyType }).toString() });
+    }
   };
-
-  const handleQuickCity = (city: string) => {
-    setHeroDestination(city);
-    onSearchCityChange(city);
-    onNavigateTo('explore');
-  };
-
-  const totalGuests = adultCount + childCount;
-
-  useEffect(() => {
-    if (!showGuestDropdown) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowGuestDropdown(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showGuestDropdown]);
 
   return (
-    <section className="relative -mt-6 -mx-4 sm:-mx-6 lg:-mx-8 min-h-[640px] flex items-center justify-center">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <img
-          src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=1920&q=80"
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-[#0B1B3A]/55" />
-        <div className="absolute inset-0 bg-gradient-to-b from-[#0B1B3A]/40 via-[#0B1B3A]/20 to-[#F8FAFC]" />
+    <section className="cinematic-hero relative -mx-4 -mt-6 sm:-mx-6 lg:-mx-8" aria-labelledby="home-hero-heading" data-home-hero>
+      <div className="relative isolate h-[520px] overflow-hidden rounded-b-[28px] bg-[#10243a] sm:h-[560px] sm:rounded-b-[36px] lg:h-[590px] xl:h-[610px]">
+        <figure className="absolute inset-0 m-0" data-hero-photo>
+          <AnimatePresence initial={false}>
+            <motion.img
+              key={scene.image}
+              src={scene.image}
+              alt={isID ? scene.id : scene.en}
+              initial={reduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0 : 0.4 }}
+              loading="eager"
+              fetchPriority={sceneIndex === 0 ? 'high' : 'auto'}
+              decoding="async"
+              onError={applyImageFallback}
+              className="absolute inset-0 h-full w-full object-cover object-[58%_45%] sm:object-[center_45%]"
+            />
+          </AnimatePresence>
+          <div className="pointer-events-none absolute inset-0 bg-[#091a30]/30" aria-hidden />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#091a30]/30 via-transparent to-[#091a30]/75" aria-hidden />
+          <figcaption className="absolute inset-x-5 bottom-[88px] flex items-end justify-between gap-4 text-white sm:inset-x-9 sm:bottom-[100px] lg:inset-x-14 lg:bottom-[108px]">
+            <div className="min-w-0">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-white/90 sm:text-sm"><MapPin className="size-3.5 shrink-0 text-gold-light" aria-hidden />{scene.place}</p>
+              <p className="hidden text-[11px] text-white/65 sm:block">{scene.name}</p>
+            </div>
+            <div className="flex shrink-0 gap-1" role="group" aria-label={isID ? 'Pilihan foto destinasi' : 'Destination photos'}>
+              {scenes.map((item, index) => (
+                <button
+                  key={item.place}
+                  type="button"
+                  aria-label={`${isID ? 'Tampilkan' : 'Show'} ${item.place}`}
+                  aria-pressed={sceneIndex === index}
+                  onClick={() => setSceneIndex(index)}
+                  className={`flex min-h-11 w-10 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg text-[11px] font-semibold transition-colors duration-200 sm:w-12 ${sceneIndex === index ? 'text-gold-light' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <span className={`h-[2px] w-6 rounded-full ${sceneIndex === index ? 'bg-gold-light' : 'bg-white/25'}`} aria-hidden />
+                </button>
+              ))}
+            </div>
+          </figcaption>
+        </figure>
+
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: easeOutSoft }}
+          className="relative mx-auto max-w-[1000px] px-5 pt-12 text-center text-white sm:px-8 sm:pt-14 lg:pt-16"
+        >
+          <p className="mb-5 flex items-center justify-center gap-3 text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-light sm:mb-6 sm:text-[11px]">
+            <span className="hidden h-px w-8 bg-gold-light/60 min-[360px]:block" aria-hidden />
+            {isID ? 'Sebuah tempat. Seribu cerita.' : 'One place. A thousand stories.'}
+            <span className="hidden h-px w-8 bg-gold-light/60 min-[360px]:block" aria-hidden />
+          </p>
+          <h1 id="home-hero-heading" className="font-serif text-[34px] leading-[1.09] tracking-[-0.04em] min-[360px]:text-[41px] sm:text-[59px] lg:text-[72px] xl:text-[80px]" style={{ textShadow: '0 2px 24px rgba(0,0,0,0.12)' }}>
+            {isID
+              ? <>Temukan tempat.<br /><span className="italic text-gold-light">Ciptakan kenangan.</span></>
+              : <>Find your escape.<br /><span className="italic text-gold-light">Make it memorable.</span></>}
+          </h1>
+          <p className="mx-auto mt-5 max-w-[540px] text-[14px] leading-6 text-white/85 sm:mt-6 sm:text-[16px] sm:leading-7">
+            {isID
+              ? 'Dari pesisir yang tenang hingga ritme kota. Temukan penginapan yang terasa pas untuk perjalananmu.'
+              : 'From quiet coastlines to the rhythm of the city. Discover a stay that feels just right for your journey.'}
+          </p>
+          {quickCities.length > 0 && (
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2 sm:mt-6 sm:gap-2.5">
+              <span className="mr-1 hidden text-xs text-white/65 sm:block">{isID ? 'Jelajahi' : 'Explore'}</span>
+              {quickCities.slice(0, 3).map(city => (
+                <button key={city} type="button" onClick={() => search(city)} className="inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-white/25 bg-white/5 px-3 py-2 text-[11px] font-medium text-white backdrop-blur-sm transition-colors duration-200 hover:border-gold-light/70 hover:bg-white/15 sm:px-4 sm:text-xs">
+                  {city}<ArrowUpRight className="size-3" aria-hidden />
+                </button>
+              ))}
+            </div>
+          )}
+        </motion.div>
       </div>
 
-      <div className="relative z-30 max-w-[1400px] mx-auto w-full px-4 sm:px-8 lg:px-12 pt-14 pb-28">
-        <motion.div
-          variants={staggerContainer}
-          initial={reduceMotion ? false : 'initial'}
-          animate="animate"
-          className="text-center space-y-5 max-w-3xl mx-auto"
+      <div className="relative z-10 mx-auto -mt-14 max-w-[1280px] px-4 sm:-mt-16 sm:px-8 lg:px-10">
+        <form
+          onSubmit={event => { event.preventDefault(); search(); }}
+          className="rounded-[22px] border border-[#e7e5df] bg-white p-5 shadow-[0_16px_48px_rgba(12,31,59,0.12)] sm:rounded-[26px] sm:px-7 sm:py-5 lg:px-8"
+          aria-label={isID ? 'Cari penginapan' : 'Find a stay'}
         >
-          <motion.div variants={blurUp} transition={{ duration: 0.35, ease: easeOutSoft }}>
-            <span className="inline-flex items-center gap-2 px-4 py-2 bg-white/12 backdrop-blur-md border border-white/20 rounded-full text-[11px] font-semibold uppercase tracking-[0.18em] text-gold-light">
-              <Sparkles className="w-3.5 h-3.5 text-gold-light" aria-hidden />
-              {isID ? 'Koleksi Roomly 2026' : 'Roomly Collection 2026'}
-            </span>
-          </motion.div>
-          <motion.h1
-            variants={blurUp}
-            transition={{ duration: 0.45, ease: easeOutSoft }}
-            className="font-serif text-4xl sm:text-5xl md:text-6xl lg:text-[4.25rem] text-white tracking-tight leading-[1.08]"
-          >
-            {isID ? (
-              <>Temukan <span className="italic text-gold-light">menginap</span> terbaik</>
-            ) : (
-              <>Find your next <span className="italic text-gold-light">stay</span></>
-            )}
-          </motion.h1>
-          <motion.p
-            variants={blurUp}
-            transition={{ duration: 0.4, ease: easeOutSoft }}
-            className="text-[15px] sm:text-base text-white/85 font-normal max-w-xl mx-auto leading-relaxed"
-          >
-            {isID
-              ? 'Hotel, resor, dan vila kurasi — konfirmasi instan, tarif member, tanpa ribet.'
-              : 'Curated hotels, resorts, and villas — instant confirmation, member rates, no fuss.'}
-          </motion.p>
-        </motion.div>
-
-        <motion.div
-          initial={reduceMotion ? false : { opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.16, ease: easeOutSoft }}
-          className="mt-10 max-w-5xl mx-auto"
-        >
-          <div className="flex justify-center mb-3">
-            <div
-              role="tablist"
-              aria-label={isID ? 'Jenis properti' : 'Property type'}
-              className="inline-flex items-center gap-1 p-1 bg-white/12 backdrop-blur-md rounded-full border border-white/20"
-            >
-              {([
-                { id: 'hotel' as const, label: isID ? 'Hotel' : 'Hotels', icon: Building },
-                { id: 'villa' as const, label: isID ? 'Vila' : 'Villas', icon: Home },
-                { id: 'apartment' as const, label: isID ? 'Apartemen' : 'Apartments', icon: Building2 }
-              ]).map((tab) => {
-                const active = activeCategoryTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    onClick={() => setActiveCategoryTab(tab.id)}
-                    className={`relative min-h-11 px-4 py-2 rounded-full text-[13px] font-medium transition-colors duration-200 flex items-center gap-1.5 cursor-pointer ${active ? 'text-[#1E3A8A]' : 'text-white/80 hover:text-white'}`}
-                  >
-                    {active && (
-                      <motion.span
-                        layoutId={reduceMotion ? undefined : 'activeCategoryPill'}
-                        className="absolute inset-0 bg-white rounded-full shadow-sm"
-                        transition={pillTween}
-                      />
-                    )}
-                    <tab.icon className="w-3.5 h-3.5 relative z-10" aria-hidden />
-                    <span className="relative z-10">{tab.label}</span>
-                  </button>
-                );
-              })}
-            </div>
+          <div className="mb-4 flex items-center justify-between gap-4 border-b border-slate-100 pb-3.5">
+            <p className="flex items-center gap-2.5 text-[13px] font-semibold text-navy-dark"><span className="h-4 w-[3px] rounded-full bg-gold-light" aria-hidden />{isID ? 'Perjalanan istimewamu dimulai di sini' : 'Your next escape begins here'}</p>
+            <span className="hidden text-xs text-slate-500 lg:block">{isID ? 'Hotel, vila, dan apartemen pilihan' : 'Hotels, villas, and apartments'}</span>
           </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleHeroSearch();
-            }}
-            className="bg-white rounded-2xl sm:rounded-3xl p-2 sm:p-2 shadow-[0_20px_50px_rgba(11,27,58,0.22)] border border-white"
-          >
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-0 items-stretch">
-              <div className="md:col-span-3 p-3 sm:p-4 md:border-r border-slate-100">
-                <label htmlFor="hero-destination" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  {isID ? 'Destinasi' : 'Destination'}
-                </label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 absolute left-0 top-1/2 -translate-y-1/2 text-gold pointer-events-none" aria-hidden />
-                  <input
-                    id="hero-destination"
-                    type="text"
-                    value={heroDestination}
-                    onChange={(e) => setHeroDestination(e.target.value)}
-                    placeholder={isID ? 'Bali, Jakarta, Tokyo...' : 'Bali, Tokyo, Paris...'}
-                    autoComplete="off"
-                    className="w-full min-h-11 pl-6 pr-2 py-1 bg-transparent text-[15px] font-semibold text-[#1E3A8A] placeholder-slate-400 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="md:col-span-4 p-3 sm:p-4 md:border-r border-slate-100 border-t md:border-t-0">
-                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  {isID ? 'Tanggal menginap' : 'Stay dates'}
-                </span>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <div className="relative flex-1 min-w-0">
-                    <label htmlFor="hero-checkin" className="sr-only">{isID ? 'Check-in' : 'Check-in'}</label>
-                    <CalendarDays className="w-4 h-4 absolute left-0 top-1/2 -translate-y-1/2 text-gold pointer-events-none" aria-hidden />
-                    <input
-                      id="hero-checkin"
-                      type="date"
-                      value={checkInDate}
-                      onChange={(e) => setCheckInDate(e.target.value)}
-                      className="w-full min-h-11 min-w-0 pl-6 pr-0 py-1 bg-transparent text-[13px] font-semibold text-[#1E3A8A] focus:outline-none cursor-pointer"
-                    />
-                  </div>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-300 shrink-0 hidden sm:block" aria-hidden />
-                  <div className="relative flex-1 min-w-0">
-                    <label htmlFor="hero-checkout" className="sr-only">{isID ? 'Check-out' : 'Check-out'}</label>
-                    <CalendarDays className="w-4 h-4 absolute left-0 top-1/2 -translate-y-1/2 text-gold pointer-events-none" aria-hidden />
-                    <input
-                      id="hero-checkout"
-                      type="date"
-                      value={checkOutDate}
-                      onChange={(e) => setCheckOutDate(e.target.value)}
-                      className="w-full min-h-11 min-w-0 pl-6 pr-0 py-1 bg-transparent text-[13px] font-semibold text-[#1E3A8A] focus:outline-none cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="md:col-span-3 p-3 sm:p-4 border-t md:border-t-0">
-                <span id="hero-guests-label" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  {isID ? 'Tamu & kamar' : 'Guests & rooms'}
-                </span>
-                <button
-                  type="button"
-                  aria-labelledby="hero-guests-label"
-                  aria-expanded={showGuestDropdown}
-                  aria-controls="hero-guest-panel"
-                  onClick={() => setShowGuestDropdown(!showGuestDropdown)}
-                  className="w-full min-h-11 flex items-center gap-2.5 text-left group cursor-pointer"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[#E9EEF5] flex items-center justify-center shrink-0 group-hover:bg-blue-50 transition-colors duration-200">
-                    <Users className="w-4 h-4 text-[#1E3A8A]" aria-hidden />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[15px] font-semibold text-[#1E3A8A] truncate">
-                      {totalGuests} {isID ? 'tamu' : 'guests'}
-                    </p>
-                    <p className="text-[12px] text-slate-500 truncate">
-                      {adultCount} {isID ? 'dewasa' : 'adults'}
-                      {childCount > 0 ? `, ${childCount} ${isID ? 'anak' : 'children'}` : ''}
-                    </p>
-                  </div>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 shrink-0 ${showGuestDropdown ? 'rotate-180' : ''}`} aria-hidden />
-                </button>
-              </div>
-
-              <div className="md:col-span-2 p-2 flex items-end">
-                <motion.button
-                  type="submit"
-                  whileHover={reduceMotion ? undefined : { scale: 1.015 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-                  className="w-full min-h-12 md:min-h-[56px] rounded-xl bg-gold hover:bg-gold-dark text-white flex items-center justify-center gap-2 cursor-pointer transition-colors duration-200 shadow-md shadow-gold/25"
-                >
-                  <Search className="w-4 h-4" aria-hidden />
-                  <span className="text-[14px] font-semibold">
-                    {isID ? 'Cari' : 'Search'}
-                  </span>
-                </motion.button>
-              </div>
+          <div className="grid items-center gap-4 md:grid-cols-[1.15fr_0.95fr_auto] md:gap-6">
+            <div className="min-w-0 md:border-r md:border-slate-100 md:pr-6">
+              <label id={`${inputId}-label`} htmlFor={inputId} className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{isID ? 'Kota tujuan' : 'Your destination'}</label>
+              <CityDestinationPicker
+                id={inputId}
+                isID={isID}
+                value={destination}
+                onChange={setDestination}
+                cities={cities}
+                open={activePicker === 'city'}
+                onOpenChange={open => setActivePicker(current => open ? 'city' : current === 'city' ? null : current)}
+              />
             </div>
-
-            <AnimatePresence initial={false}>
-              {showGuestDropdown && (
-                <motion.div
-                  id="hero-guest-panel"
-                  role="region"
-                  aria-label={isID ? 'Jumlah tamu' : 'Guest count'}
-                  initial={reduceMotion ? false : { opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.18, ease: easeOutSoft }}
-                >
-                  <div className="mx-2 mb-2 mt-1 rounded-2xl border border-navy-soft bg-navy-soft/50 p-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="flex items-center justify-between py-1">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                            <User className="w-4 h-4 text-navy" aria-hidden />
-                          </div>
-                          <div>
-                            <p className="text-[14px] font-semibold text-navy">{isID ? 'Dewasa' : 'Adults'}</p>
-                            <p className="text-[12px] text-slate-500">{isID ? 'Usia 13+' : 'Age 13+'}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setAdultCount(Math.max(1, adultCount - 1))}
-                            disabled={adultCount <= 1}
-                            aria-label={isID ? 'Kurangi dewasa' : 'Decrease adults'}
-                            className="w-11 h-11 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:border-navy hover:bg-white transition-colors duration-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                          >
-                            <Minus className="w-3.5 h-3.5" aria-hidden />
-                          </button>
-                          <span className="text-sm font-bold text-navy w-5 text-center" aria-live="polite">{adultCount}</span>
-                          <button
-                            type="button"
-                            onClick={() => setAdultCount(Math.min(20, adultCount + 1))}
-                            aria-label={isID ? 'Tambah dewasa' : 'Increase adults'}
-                            className="w-11 h-11 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:border-navy transition-colors duration-200 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" aria-hidden />
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between py-1">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
-                            <Baby className="w-4 h-4 text-navy" aria-hidden />
-                          </div>
-                          <div>
-                            <p className="text-[14px] font-semibold text-navy">{isID ? 'Anak' : 'Children'}</p>
-                            <p className="text-[12px] text-slate-500">{isID ? 'Usia 0-12' : 'Age 0-12'}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setChildCount(Math.max(0, childCount - 1))}
-                            disabled={childCount <= 0}
-                            aria-label={isID ? 'Kurangi anak' : 'Decrease children'}
-                            className="w-11 h-11 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:border-navy transition-colors duration-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                          >
-                            <Minus className="w-3.5 h-3.5" aria-hidden />
-                          </button>
-                          <span className="text-sm font-bold text-navy w-5 text-center" aria-live="polite">{childCount}</span>
-                          <button
-                            type="button"
-                            onClick={() => setChildCount(Math.min(10, childCount + 1))}
-                            aria-label={isID ? 'Tambah anak' : 'Increase children'}
-                            className="w-11 h-11 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-600 hover:border-navy transition-colors duration-200 cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" aria-hidden />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </form>
-
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            <span className="text-[12px] text-white/70 font-medium mr-1">
-              {isID ? 'Populer:' : 'Popular:'}
-            </span>
-            {QUICK_CITIES.map((city) => (
-              <button
-                key={city}
-                type="button"
-                onClick={() => handleQuickCity(city)}
-                className="min-h-9 px-3.5 py-1.5 rounded-full bg-white/14 hover:bg-white/24 border border-white/25 text-[13px] font-medium text-white transition-colors duration-200 cursor-pointer"
-              >
-                {city}
-              </button>
-            ))}
+            <div className="min-w-0 border-t border-slate-100 pt-3 md:border-r md:border-t-0 md:pr-6 md:pt-0">
+              <label id={`${typeId}-label`} htmlFor={typeId} className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.13em] text-slate-500">{isID ? 'Jenis penginapan' : 'Property type'}</label>
+              <PropertyTypePicker
+                id={typeId}
+                isID={isID}
+                value={propertyType}
+                onChange={setPropertyType}
+                open={activePicker === 'type'}
+                onOpenChange={open => setActivePicker(current => open ? 'type' : current === 'type' ? null : current)}
+              />
+            </div>
+            <button type="submit" className="group flex min-h-14 cursor-pointer items-center justify-center gap-3 rounded-xl bg-gold px-6 py-4 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(161,98,7,0.15)] transition-colors duration-200 hover:bg-gold-dark active:bg-gold-dark lg:px-7">
+              <Search className="size-[18px]" aria-hidden />{isID ? 'Cari penginapan' : 'Find a stay'}<ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transform-none" aria-hidden />
+            </button>
           </div>
-        </motion.div>
+          <p className="mt-3 text-[11px] leading-5 text-slate-500">{isID ? 'Tanggal dan jumlah tamu dapat diatur saat memilih kamar.' : 'Choose your dates and guests when selecting a room.'}</p>
+        </form>
       </div>
     </section>
   );

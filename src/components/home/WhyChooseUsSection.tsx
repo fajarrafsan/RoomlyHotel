@@ -1,69 +1,79 @@
 import React from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { ShieldCheck, Award, Star } from 'lucide-react';
-import { easeOutSoft, viewOnce } from './animations';
+import { BedDouble, CalendarCheck, CreditCard, MapPin } from 'lucide-react';
+import { easeOutSoft } from './animations';
+import { applyImageFallback } from '../../lib/imageFallback';
 
 export const WhyChooseUsSection: React.FC<{ isID: boolean }> = ({ isID }) => {
   const reduceMotion = useReducedMotion();
-
   const items = [
     {
-      icon: ShieldCheck,
-      title: isID ? 'Pembayaran aman' : 'Secure payments',
+      icon: BedDouble,
+      title: isID ? 'Pilihan lebih jelas' : 'Choose with confidence',
       desc: isID
-        ? 'Enkripsi tingkat perbankan untuk setiap transaksi. Data Anda dilindungi.'
-        : 'Bank-grade encryption for every transaction. Your data stays protected.'
+        ? 'Lihat foto, detail kamar, kapasitas tamu, dan tarif sebelum menentukan tempat menginap.'
+        : 'See photos, room details, guest capacity, and rates before choosing your stay.',
     },
     {
-      icon: Award,
-      title: isID ? 'Harga terbaik' : 'Best price promise',
+      icon: CreditCard,
+      title: isID ? 'Pembayaran lebih praktis' : 'A simpler way to pay',
       desc: isID
-        ? 'Jaminan harga termurah. Temukan tarif lebih rendah, kami samakan.'
-        : 'Lowest price guarantee. Find a lower rate and we will match it.'
+        ? 'Tinjau rincian reservasi, lalu lanjutkan dengan metode pembayaran yang tersedia.'
+        : 'Review your reservation details, then continue with an available payment method.',
     },
     {
-      icon: Star,
-      title: isID ? 'Layanan premium' : 'Concierge premium',
+      icon: CalendarCheck,
+      title: isID ? 'Perjalanan lebih tertata' : 'Keep your plans together',
       desc: isID
-        ? 'Tim concierge 24 jam memastikan pengalaman menginap Anda lancar.'
-        : 'Our concierge team is available 24/7 to keep your stay effortless.'
-    }
+        ? 'Simpan penginapan favorit dan temukan kembali reservasi serta invoice yang sudah terbit di akunmu.'
+        : 'Save your favourite stays and find your reservations and issued invoices in your account.',
+    },
   ];
 
   return (
-    <section className="relative rounded-[2rem] bg-[#F8FAFC] border border-[#E9EEF5] px-5 py-14 sm:px-10 sm:py-16" aria-labelledby="why-heading">
-      <motion.div
-        initial={reduceMotion ? false : { opacity: 0, y: 16 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={viewOnce}
-        transition={{ duration: 0.4, ease: easeOutSoft }}
-        className="text-center space-y-2 mb-10"
-      >
-        <p className="text-[12px] font-semibold text-gold uppercase tracking-[0.16em]">
-          {isID ? 'Keunggulan Roomly' : 'The Roomly standard'}
-        </p>
-        <h2 id="why-heading" className="font-serif text-3xl sm:text-4xl lg:text-[2.75rem] text-[#1E3A8A] tracking-tight">
-          {isID ? 'Mengapa memilih kami' : 'Why stay with us'}
-        </h2>
-      </motion.div>
+    <section className="-mx-4 grid overflow-hidden rounded-[28px] border border-[#e7e0d4] bg-[#f6f2e9] sm:mx-0 sm:rounded-[32px] lg:grid-cols-[0.43fr_0.57fr]" aria-labelledby="why-heading" data-why-roomly>
+      <figure className="relative m-0 min-h-[220px] overflow-hidden bg-slate-200 sm:min-h-[280px] lg:min-h-[510px]">
+        <img
+          src="/images/seed/hotels/samudra-belitung.png"
+          alt={isID ? 'Resor tropis di pesisir Belitung dengan pantai berpasir putih dan bebatuan granit' : 'A tropical resort on the Belitung coast, with white sand and granite rocks'}
+          loading="lazy"
+          decoding="async"
+          onError={applyImageFallback}
+          className="absolute inset-0 h-full w-full object-cover object-[center_60%] lg:object-[60%_center]"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0b2039]/90 via-[#0b2039]/40 to-transparent" aria-hidden />
+        <figcaption className="absolute inset-x-6 bottom-6 text-white sm:inset-x-8 sm:bottom-8 lg:inset-x-9 lg:bottom-9" style={{ textShadow: '0 1px 14px rgba(0,0,0,0.25)' }}>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-light">The Roomly feeling</p>
+          <p className="font-serif text-[27px] leading-[1.25] tracking-tight sm:text-[32px] lg:text-[35px]">{isID ? <>Ruang untuk<br /><span className="italic">cerita baru.</span></> : <>Room for<br /><span className="italic">a new story.</span></>}</p>
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-white/85"><MapPin className="size-3.5 text-gold-light" aria-hidden />Belitung, Indonesia</p>
+        </figcaption>
+      </figure>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-        {items.map((item, idx) => (
-          <motion.div
-            key={item.title}
-            initial={reduceMotion ? false : { opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={viewOnce}
-            transition={{ duration: 0.35, delay: idx * 0.06, ease: easeOutSoft }}
-            className="group p-7 sm:p-8 rounded-3xl bg-white border border-[#E9EEF5] shadow-[0_8px_28px_rgba(30,58,138,0.06)] hover:shadow-[0_16px_40px_rgba(30,58,138,0.1)] hover:border-blue-100 transition-all duration-200"
-          >
-            <div className="w-12 h-12 rounded-2xl bg-[#E9EEF5] flex items-center justify-center mb-5">
-              <item.icon className="w-6 h-6 text-[#1E3A8A]" aria-hidden />
-            </div>
-            <h3 className="text-lg font-semibold text-[#1E3A8A] mb-2">{item.title}</h3>
-            <p className="text-[14px] text-slate-600 leading-relaxed">{item.desc}</p>
-          </motion.div>
-        ))}
+      <div className="min-w-0 px-6 py-7 sm:px-9 sm:py-9 lg:px-10 lg:py-10 xl:px-12">
+        <p className="mb-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-gold sm:text-[11px]"><span className="h-px w-7 bg-gold/60" aria-hidden />{isID ? 'Kenapa Roomly' : 'Why Roomly'}</p>
+        <h2 id="why-heading" className="font-serif text-[29px] leading-[1.2] tracking-[-0.035em] text-navy-dark sm:text-[35px] lg:text-[37px] xl:text-[40px]">
+          {isID ? <>Menginap nyaman,<br /><span className="italic text-gold">berawal di sini.</span></> : <>A better stay<br /><span className="italic text-gold">starts here.</span></>}
+        </h2>
+        <div className="mt-6 sm:mt-7">
+          {items.map((item, index) => (
+            <motion.div
+              key={index}
+              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: reduceMotion ? 0 : 0.25, delay: reduceMotion ? 0 : index * 0.035, ease: easeOutSoft }}
+              className="flex items-start gap-3.5 border-b border-[#e5ddce] py-4 first:pt-0 last:border-b-0 last:pb-0 sm:gap-4 sm:py-5"
+              data-roomly-benefit
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-[13px] border border-[#e9e1d3] bg-white/85 text-gold sm:size-11"><item.icon className="size-[19px]" aria-hidden /></span>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[15px] font-semibold leading-6 text-navy-dark sm:text-base">{item.title}</h3>
+                <p className="mt-1 text-[13px] leading-[1.7] text-slate-600 sm:text-[14px]">{item.desc}</p>
+              </div>
+              <span className="hidden pt-1 text-[11px] font-semibold tabular-nums text-gold/60 xl:block" aria-hidden>{String(index + 1).padStart(2, '0')}</span>
+            </motion.div>
+          ))}
+        </div>
       </div>
     </section>
   );

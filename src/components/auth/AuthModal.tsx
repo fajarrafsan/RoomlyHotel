@@ -1,23 +1,25 @@
-import React, { useState, useEffect, useId } from 'react';
-import { motion, AnimatePresence, LayoutGroup, useReducedMotion } from 'motion/react';
+import React, { useState, useEffect, useId, useRef } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import {
   X, Mail, Lock, User as UserIcon, Eye, EyeOff, ArrowRight,
-  CheckCircle2, ShieldCheck, ArrowLeft, BadgeCheck, Heart,
+  CheckCircle2, ShieldCheck, MapPin, LockKeyhole,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { ApiError, OtpRequiredError } from '../../lib/http';
-import { isGoogleSignInConfigured, requestGoogleIdToken } from '../../lib/googleAuth';
-import { Language } from '../../types';
+import { AuthUser, Language } from '../../types';
 import { AuthFieldInput } from './AuthFieldInput';
+import { AdminOtpForm } from './AdminOtpForm';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { PasswordStrengthMeter } from './PasswordStrengthMeter';
 import { isOperationsRole, roleLandingPath } from '../../lib/routes';
-import { fadeTween, modalTween, pillTween } from '../../lib/motion';
+import { easeSmooth, fadeTween } from '../../lib/motion';
+import { applyImageFallback } from '../../lib/imageFallback';
 
 interface AuthModalProps {
   onClose: () => void;
   language: Language;
+  returnTo?: string | null;
 }
 
 const HotelMark: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
@@ -39,18 +41,22 @@ const HotelMark: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) 
   </svg>
 );
 
-export const AuthModal: React.FC<AuthModalProps> = ({ onClose, language }) => {
+export const AuthModal: React.FC<AuthModalProps> = ({ onClose, language, returnTo }) => {
   const isID = language === 'ID';
   const navigate = useNavigate();
-  const { login, register, loginWithGoogle, verifyAdminOtp } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
   const reduceMotion = useReducedMotion();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const ids = {
     name: useId(),
     email: useId(),
     password: useId(),
-    otp: useId(),
     error: useId(),
     title: useId(),
+    description: useId(),
+    loginTab: useId(),
+    registerTab: useId(),
+    tabPanel: useId(),
   };
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -62,20 +68,58 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, language }) => {
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Admin accounts require a second-factor OTP emailed on login — this swaps
-  // the form for a one-time-code step instead of failing the login outright.
-  const [otpEmail, setOtpEmail] = useState<string | null>(null);
-  const [otpCode, setOtpCode] = useState('');
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpAttempt, setOtpAttempt] = useState<OtpRequiredError | null>(null);
+  const [isOtpBusy, setIsOtpBusy] = useState(false);
+  const busy = isSubmitting || isGoogleSubmitting || isOtpBusy;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+
+  const finishSignIn = (signedInUser?: AuthUser) => {
+    onClose();
+    // This destination comes from the local route guard, never an external URL.
+    const destination = returnTo?.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\') ? returnTo : null;
+    if (signedInUser && isOperationsRole(signedInUser.role) && destination?.split('?')[0] !== '/settings') {
+      navigate(roleLandingPath(signedInUser.role), { replace: true });
+    } else if (destination) {
+      navigate(destination, { replace: true });
+    }
+  };
 
   useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
+    dialogRef.current?.focus({ preventScroll: true });
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    };
   }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (!busyRef.current) onClose();
+      }
+      if (e.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const controls = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), a[href], iframe, [tabindex="0"]'
+      )).filter((element) => !element.matches(':disabled') && !element.closest('[inert]') && element.tabIndex >= 0 && element.getClientRects().length > 0);
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        dialog.focus();
+      } else if (e.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement as HTMLElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !controls.includes(document.activeElement as HTMLElement))) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -83,105 +127,82 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, language }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setIsSubmitting(true);
     try {
       if (mode === 'login') {
         const loggedUser = await login(email, password);
-        onClose();
-        if (isOperationsRole(loggedUser?.role)) {
-          navigate(roleLandingPath(loggedUser?.role));
-        }
+        finishSignIn(loggedUser);
       } else {
         await register(fullName, email, password);
-        onClose();
+        finishSignIn();
       }
     } catch (err) {
       if (err instanceof OtpRequiredError) {
-        setOtpEmail(err.email);
+        setPassword('');
+        setOtpAttempt(err);
       } else if (err instanceof ApiError) {
         const fieldErrors = err.body?.errors ? Object.values(err.body.errors).join(', ') : null;
         setError(fieldErrors || err.message);
       } else {
-        setError(isID ? 'Terjadi kesalahan. Pastikan backend sedang berjalan.' : 'Something went wrong. Make sure the backend is running.');
+        setError(isID ? 'Belum bisa terhubung. Silakan coba lagi sebentar.' : 'Unable to connect. Please try again in a moment.');
       }
     } finally {
+      busyRef.current = false;
       setIsSubmitting(false);
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (idToken: string) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setError(null);
     setIsGoogleSubmitting(true);
     try {
-      const idToken = await requestGoogleIdToken();
       const loggedUser = await loginWithGoogle(idToken);
-      onClose();
-      if (isOperationsRole(loggedUser?.role)) {
-        navigate(roleLandingPath(loggedUser?.role));
-      }
+      finishSignIn(loggedUser);
     } catch (err) {
       if (err instanceof OtpRequiredError) {
-        setOtpEmail(err.email);
+        setPassword('');
+        setOtpAttempt(err);
       } else if (err instanceof ApiError) {
         setError(err.message);
+      } else if (err instanceof DOMException && err.name === 'TimeoutError') {
+        setError(isID ? 'Login Google terlalu lama. Silakan coba lagi.' : 'Google sign-in took too long. Please try again.');
       } else if (err instanceof Error) {
         setError(err.message);
       } else {
         setError(isID ? 'Google Sign-In gagal. Coba lagi.' : 'Google Sign-In failed. Please try again.');
       }
     } finally {
+      busyRef.current = false;
       setIsGoogleSubmitting(false);
-    }
-  };
-
-  const handleOtpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!otpEmail) return;
-    setError(null);
-    setIsVerifyingOtp(true);
-    try {
-      const loggedUser = await verifyAdminOtp(otpEmail, otpCode);
-      onClose();
-      if (isOperationsRole(loggedUser?.role)) {
-        navigate(roleLandingPath(loggedUser?.role));
-      }
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError(isID ? 'Kode OTP salah atau kedaluwarsa.' : 'The OTP code is wrong or expired.');
-      }
-    } finally {
-      setIsVerifyingOtp(false);
     }
   };
 
   const isValidEmail = email.includes('@') && email.includes('.');
 
-  const heading = otpEmail
-    ? (isID ? 'Verifikasi kode' : 'Verify your code')
+  const heading = otpAttempt
+    ? (isID ? 'Verifikasi admin' : 'Admin verification')
     : mode === 'login'
       ? (isID ? 'Selamat datang kembali' : 'Welcome back')
       : (isID ? 'Buat akun baru' : 'Create your account');
 
-  const subheading = otpEmail
-    ? (isID ? `Kode OTP telah dikirim ke ${otpEmail}` : `An OTP code has been sent to ${otpEmail}`)
+  const subheading = otpAttempt
+    ? <>
+        {isID ? 'Masukkan kode 6 digit yang dikirim ke' : 'Enter the 6-digit code sent to'}
+        <span className="mt-0.5 block break-all font-semibold text-navy-dark">{otpAttempt.email}</span>
+      </>
     : mode === 'login'
       ? (isID ? 'Masuk untuk melanjutkan reservasi Anda.' : 'Sign in to continue your booking.')
       : (isID ? 'Daftar untuk mulai menjelajah penginapan.' : 'Register to start exploring stays.');
 
-  const panelTitle = otpEmail
-    ? (isID ? <>Aman & <span className="italic text-gold-light">terverifikasi</span></> : <>Secure & <span className="italic text-gold-light">verified</span></>)
-    : mode === 'login'
-      ? (isID ? <>Menginap lebih <span className="italic text-gold-light">mudah</span></> : <>Stay, simply <span className="italic text-gold-light">better</span></>)
-      : (isID ? <>Bergabung dengan <span className="italic text-gold-light">Roomly</span></> : <>Join <span className="italic text-gold-light">Roomly</span></>);
-
-  const trustItems = [
-    { icon: ShieldCheck, text: isID ? 'Jaminan harga terbaik' : 'Best price guarantee' },
-    { icon: BadgeCheck, text: isID ? 'Pembayaran terenkripsi' : 'Encrypted payments' },
-    { icon: Heart, text: isID ? 'Wishlist tersimpan aman' : 'Wishlist saved securely' },
-  ];
+  const switchMode = (nextMode: 'login' | 'register') => {
+    setMode(nextMode);
+    setError(null);
+  };
 
   const errorBanner = (
     <AnimatePresence>
@@ -204,342 +225,259 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, language }) => {
 
   return (
     <motion.div
-      initial={reduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={fadeTween}
-      className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 overflow-y-auto"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      initial="enter"
+      animate="open"
+      exit="exit"
+      className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-3 sm:p-6"
+      onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}
     >
-      <div className="absolute inset-0 bg-navy-dark/50" aria-hidden onClick={onClose} />
       <motion.div
+        variants={{ enter: { opacity: 0 }, open: { opacity: 1 }, exit: { opacity: 0 } }}
+        transition={reduceMotion ? { duration: 0 } : fadeTween}
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-[3px]"
+        aria-hidden
+        onClick={() => { if (!busy) onClose(); }}
+      />
+      <motion.div
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
         aria-modal="true"
         aria-labelledby={ids.title}
-        initial={reduceMotion ? false : { opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 12 }}
-        transition={modalTween}
-        className="auth-modal relative z-10 bg-white rounded-3xl max-w-[860px] w-full max-h-[92vh] shadow-[0_24px_80px_rgba(30,58,138,0.18)] border border-navy-soft overflow-hidden my-auto grid md:grid-cols-[0.88fr_1.12fr] transform-gpu will-change-transform"
-        onClick={(e) => e.stopPropagation()}
+        aria-describedby={ids.description}
+        variants={{
+          enter: { y: reduceMotion ? 0 : 12, scale: reduceMotion ? 1 : 0.985 },
+          open: { y: 0, scale: 1, opacity: 1 },
+          exit: { y: reduceMotion ? 0 : 6, opacity: 0 },
+        }}
+        transition={{ duration: reduceMotion ? 0 : 0.24, ease: easeSmooth }}
+        className={`auth-modal relative z-10 my-auto grid max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto border border-white/70 bg-white shadow-[0_32px_120px_rgba(9,20,44,0.3)] outline-none sm:max-h-[calc(100dvh-3rem)] ${otpAttempt ? 'max-w-[440px] rounded-[22px] before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-[#b18b46]' : 'max-w-[940px] rounded-[28px] md:grid-cols-[0.44fr_0.56fr]'}`}
+        onClick={(event) => event.stopPropagation()}
       >
-        <aside className="hidden md:flex flex-col justify-between bg-navy text-white p-8 lg:p-10 relative overflow-hidden">
-          <div className="pointer-events-none absolute -bottom-16 -right-10 w-56 h-56 rounded-full bg-gold/20 blur-3xl" aria-hidden />
-          <div className="pointer-events-none absolute -top-10 -left-10 w-40 h-40 rounded-full bg-gold-light/10 blur-2xl" aria-hidden />
-          <div className="space-y-8">
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center">
-                <HotelMark className="w-5 h-5 text-gold-light" />
-              </div>
-              <div>
-                <p className="font-serif text-lg leading-none">Roomly</p>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-white/60 mt-1">
-                  {isID ? 'Hotel & Resor' : 'Hotels & Resorts'}
-                </p>
-              </div>
-            </div>
+        {!otpAttempt && <aside className="relative m-3 mr-0 hidden min-h-[620px] flex-col justify-between overflow-hidden rounded-[20px] bg-slate-900 p-8 text-white md:flex lg:p-9">
+          <img
+            src="/images/seed/hotels/samudra-belitung.png"
+            alt=""
+            aria-hidden
+            onError={applyImageFallback}
+            className="absolute inset-0 h-full w-full object-cover object-[44%_center]"
+            decoding="async"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-950/55 via-slate-950/10 to-[#102647]" aria-hidden />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#102647]/95 via-transparent to-transparent" aria-hidden />
 
-            <div className="space-y-3">
-              <p className="text-[12px] font-semibold tracking-[0.16em] uppercase text-gold-light">
-                {otpEmail
-                  ? (isID ? 'Keamanan akun' : 'Account security')
-                  : mode === 'register'
-                    ? (isID ? 'Keanggotaan' : 'Membership')
-                    : (isID ? 'Akses tamu' : 'Guest access')}
-              </p>
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.p
-                  key={otpEmail ? 'otp' : mode}
-                  initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
-                  transition={fadeTween}
-                  className="font-serif text-[1.85rem] leading-[1.2] tracking-tight"
-                >
-                  {panelTitle}
-                </motion.p>
-              </AnimatePresence>
-              <p className="text-[14px] text-white/70 leading-relaxed max-w-[16rem]">
-                {otpEmail
-                  ? (isID ? 'Masukkan kode sekali pakai untuk melindungi akun operasional Anda.' : 'Enter the one-time code to protect your operations account.')
-                  : (isID ? 'Kelola reservasi, wishlist, dan invoice dalam satu akun.' : 'Manage bookings, wishlist, and invoices in one account.')}
+          <div className="relative flex items-center gap-3">
+            <span className="flex size-11 items-center justify-center rounded-xl border border-white/30 bg-white/10">
+              <HotelMark className="size-6 text-gold-light" />
+            </span>
+            <div>
+              <p className="font-serif text-[26px] leading-none tracking-tight">Roomly<span className="text-gold-light">.</span></p>
+              <p className="mt-1.5 text-[10px] font-medium uppercase tracking-[0.2em] text-white/80">
+                {isID ? 'Hotel & Resor' : 'Hotels & Resorts'}
               </p>
             </div>
           </div>
 
-          <ul className="space-y-3">
-            {trustItems.map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-center gap-3 text-[13px] text-white/80">
-                <span className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-                  <Icon className="w-3.5 h-3.5 text-gold-light" aria-hidden />
-                </span>
-                {text}
-              </li>
-            ))}
-          </ul>
-        </aside>
+          <div className="relative mt-48">
+            <div className="mb-5 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-gold-light">
+              <span className="h-px w-7 bg-gold-light/70" aria-hidden />
+              {isID ? 'Menginap dengan rasa' : 'A stay to remember'}
+            </div>
+            <p className="font-serif text-[39px] leading-[1.2] tracking-[-0.035em] lg:text-[42px]">
+              {isID ? <>Jeda istimewa,<br /><span className="italic text-[#f0d7a3]">cerita baru.</span></> : <>A little escape.<br /><span className="italic text-[#f0d7a3]">A new story.</span></>}
+            </p>
+            <p className="mt-5 max-w-[260px] text-sm leading-6 text-white/80">
+              {isID ? 'Temukan tempat favorit Anda. Kami bantu membuat setiap perjalanan terasa lebih mudah.' : 'Find your favourite place. We make every step of your journey feel a little easier.'}
+            </p>
+            <div className="mt-8 border-t border-white/20 pt-5">
+              <p className="flex items-center gap-2 text-xs font-medium text-white/90">
+                <MapPin className="size-3.5 text-gold-light" aria-hidden />
+                Belitung, Indonesia
+              </p>
+              <p className="mt-2 text-[11px] tracking-wide text-white/60">
+                {isID ? 'Satu akun. Banyak destinasi.' : 'One account. So many destinations.'}
+              </p>
+            </div>
+          </div>
+        </aside>}
 
-        <div className="relative flex flex-col overflow-y-auto max-h-[92vh] md:max-h-none">
+        <section className={`relative min-w-0 ${otpAttempt ? 'px-5 pb-3 pt-6 sm:px-8 sm:pt-7' : 'px-6 pb-6 pt-8 sm:px-9 lg:px-11'}`}>
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label={isID ? 'Tutup' : 'Close'}
-            className="absolute top-3 right-3 z-10 min-w-11 min-h-11 rounded-full bg-navy-soft/80 hover:bg-navy-soft flex items-center justify-center text-slate-500 hover:text-navy transition-colors duration-200 cursor-pointer"
+            className="absolute right-3 top-3 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full text-slate-500 transition-colors duration-200 hover:bg-slate-100 hover:text-slate-900 disabled:cursor-wait disabled:opacity-40"
           >
-            <X className="w-4 h-4" />
+            <X className="size-[18px]" aria-hidden />
           </button>
 
-          <div className="pt-8 pb-4 sm:pt-10 sm:pb-5 px-5 sm:px-8">
-            <div className="flex items-center gap-2.5 md:hidden mb-5">
-              <div className="w-10 h-10 rounded-xl bg-navy flex items-center justify-center">
-                <HotelMark className="w-5 h-5 text-gold-light" />
-              </div>
-              <span className="font-serif text-lg text-navy">Roomly</span>
-            </div>
+          {!otpAttempt && <div className="mb-7 flex items-center gap-2.5 md:hidden">
+            <span className="flex size-9 items-center justify-center rounded-lg bg-navy-dark">
+              <HotelMark className="size-5 text-gold-light" />
+            </span>
+            <span className="font-serif text-[24px] text-navy-dark">Roomly<span className="text-gold">.</span></span>
+          </div>}
 
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.h2
-                key={heading}
-                id={ids.title}
-                initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
-                transition={fadeTween}
-                className="font-serif text-2xl sm:text-[1.65rem] text-navy tracking-tight leading-snug pr-10"
-              >
-                {heading}
-              </motion.h2>
-            </AnimatePresence>
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.p
-                key={subheading}
-                initial={reduceMotion ? false : { opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={fadeTween}
-                className="text-[14px] text-slate-600 mt-1.5 leading-relaxed"
-              >
-                {subheading}
-              </motion.p>
-            </AnimatePresence>
-          </div>
+          <header className="mb-5 pr-7">
+            {otpAttempt
+              ? <span className="mb-3 inline-flex size-10 items-center justify-center rounded-xl bg-[#f5eddd] text-[#75531b]"><ShieldCheck className="size-5" aria-hidden /></span>
+              : <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-gold">
+                  {isID ? 'Selamat datang di Roomly' : 'Welcome to Roomly'}
+                </p>}
+            <h2
+              id={ids.title}
+              className="font-serif text-[28px] leading-tight tracking-[-0.035em] text-navy-dark sm:text-[31px]"
+            >
+              {heading}
+            </h2>
+            <p
+              id={ids.description}
+              className="mt-2 break-words text-sm leading-6 text-slate-600"
+            >
+              {subheading}
+            </p>
+          </header>
 
-          {otpEmail ? (
-            <form onSubmit={handleOtpSubmit} className="px-5 pb-7 sm:px-8 sm:pb-10 space-y-4">
-              <div>
-                <label htmlFor={ids.otp} className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                  {isID ? 'Kode OTP' : 'OTP Code'}
-                </label>
-                <AuthFieldInput
-                  id={ids.otp}
-                  name="otp"
-                  autoComplete="one-time-code"
-                  icon={ShieldCheck}
-                  value={otpCode}
-                  onChange={setOtpCode}
-                  inputMode="numeric"
-                  autoFocus
-                  ariaInvalid={!!error}
-                  ariaDescribedBy={error ? ids.error : undefined}
-                  placeholder="000000"
-                  inputClassName="tracking-[0.3em]"
-                />
-              </div>
-
-              {errorBanner}
-
-              <button
-                type="submit"
-                disabled={isVerifyingOtp}
-                className="w-full min-h-12 py-3 rounded-xl bg-navy hover:bg-navy-dark text-white text-[14px] font-semibold transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {isVerifyingOtp ? (
-                  <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" aria-hidden />
-                ) : (
-                  <>
-                    <span>{isID ? 'Verifikasi' : 'Verify'}</span>
-                    <ArrowRight className="w-4 h-4 text-gold-light" aria-hidden />
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setOtpEmail(null); setOtpCode(''); setError(null); }}
-                className="w-full min-h-11 flex items-center justify-center gap-1.5 text-[13px] text-slate-500 hover:text-navy font-medium transition-colors duration-200 cursor-pointer"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" aria-hidden />
-                {isID ? 'Kembali ke halaman masuk' : 'Back to sign in'}
-              </button>
-            </form>
+          {otpAttempt ? (
+            <AdminOtpForm
+              attempt={otpAttempt}
+              isID={isID}
+              onBack={() => { setOtpAttempt(null); setError(null); }}
+              onBusyChange={(value) => { busyRef.current = value; setIsOtpBusy(value); }}
+              onVerified={finishSignIn}
+            />
           ) : (
             <>
-              <div className="px-5 mb-5 sm:px-8">
-                <LayoutGroup id="auth-mode-tabs">
-                <div className="relative flex items-center p-1 bg-navy-soft rounded-full" role="tablist" aria-label={isID ? 'Mode akun' : 'Account mode'}>
-                  {([
-                    { id: 'login' as const, label: isID ? 'Masuk' : 'Sign In' },
-                    { id: 'register' as const, label: isID ? 'Daftar' : 'Register' },
-                  ]).map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={mode === tab.id}
-                      onClick={() => { setMode(tab.id); setError(null); }}
-                      className={`relative z-10 flex-1 min-h-11 py-2 rounded-full text-[13px] font-semibold transition-colors duration-200 cursor-pointer ${
-                        mode === tab.id ? 'text-white' : 'text-slate-600 hover:text-navy'
-                      }`}
-                    >
-                      {mode === tab.id && (
-                        reduceMotion ? (
-                          <span className="absolute inset-0 z-0 bg-navy rounded-full" />
-                        ) : (
-                          <motion.span
-                            layoutId="auth-mode-pill"
-                            className="absolute inset-0 z-0 bg-navy rounded-full"
-                            transition={pillTween}
-                          />
-                        )
-                      )}
-                      <span className="relative z-10">{tab.label}</span>
-                    </button>
-                  ))}
-                </div>
-                </LayoutGroup>
-              </div>
-
-              <form onSubmit={handleSubmit} className="px-5 pb-7 sm:px-8 sm:pb-10 space-y-4">
-                <div
-                  className={`grid transition-[grid-template-rows,margin] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none ${mode === 'register' ? '' : '-mb-4'}`}
-                  style={{ gridTemplateRows: mode === 'register' ? '1fr' : '0fr' }}
-                >
-                  <div className="overflow-hidden min-h-0" aria-hidden={mode !== 'register'}>
-                    <div className="pb-4">
-                      <label htmlFor={ids.name} className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                        {isID ? 'Nama Lengkap' : 'Full Name'}
-                      </label>
-                      <AuthFieldInput
-                        id={ids.name}
-                        name="name"
-                        autoComplete="name"
-                        icon={UserIcon}
-                        value={fullName}
-                        onChange={setFullName}
-                        required={mode === 'register'}
-                        tabIndex={mode === 'register' ? 0 : -1}
-                        placeholder={isID ? 'Nama sesuai identitas' : 'Your full name'}
-                      />
-                    </div>
+              <div className="relative isolate mb-4 grid grid-cols-2 gap-1 rounded-xl border border-slate-200/70 bg-slate-100/80 p-1" role="tablist" aria-label={isID ? 'Mode akun' : 'Account mode'}>
+                <div className="pointer-events-none absolute inset-1 -z-10" aria-hidden>
+                  <div className={`h-full w-1/2 px-0.5 motion-safe:transition-transform motion-safe:duration-250 motion-safe:ease-[cubic-bezier(0.16,1,0.3,1)] ${mode === 'register' ? 'translate-x-full' : ''}`}>
+                    <div className="h-full rounded-lg bg-white shadow-sm ring-1 ring-slate-200/60" />
                   </div>
                 </div>
+                {([
+                  { id: 'login' as const, label: isID ? 'Masuk' : 'Sign in', tabId: ids.loginTab },
+                  { id: 'register' as const, label: isID ? 'Daftar' : 'Register', tabId: ids.registerTab },
+                ]).map((tab) => (
+                  <button
+                    key={tab.id}
+                    id={tab.tabId}
+                    type="button"
+                    role="tab"
+                    disabled={busy}
+                    aria-selected={mode === tab.id}
+                    aria-controls={ids.tabPanel}
+                    tabIndex={mode === tab.id ? 0 : -1}
+                    onClick={() => switchMode(tab.id)}
+                    onKeyDown={(event) => {
+                      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+                      event.preventDefault();
+                      const nextMode = event.key === 'Home' ? 'login' : event.key === 'End' ? 'register' : mode === 'login' ? 'register' : 'login';
+                      switchMode(nextMode);
+                      document.getElementById(nextMode === 'login' ? ids.loginTab : ids.registerTab)?.focus();
+                    }}
+                    className={`min-h-11 cursor-pointer rounded-lg px-3 text-[13px] font-semibold motion-safe:transition-colors disabled:cursor-not-allowed ${mode === tab.id ? 'text-navy' : 'text-slate-500 hover:text-slate-900'}`}
+                  >
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
 
-                <div>
-                  <label htmlFor={ids.email} className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                    Email
-                  </label>
-                  <AuthFieldInput
-                    id={ids.email}
-                    name="email"
-                    autoComplete="email"
-                    icon={Mail}
-                    type="email"
-                    value={email}
-                    onChange={setEmail}
-                    ariaInvalid={!!error}
-                    placeholder="you@example.com"
-                    rightSlot={isValidEmail && (
-                      <CheckCircle2 className="w-4 h-4 absolute right-3.5 top-1/2 -translate-y-1/2 text-emerald-600" aria-hidden />
-                    )}
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor={ids.password} className="text-[12px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                    {isID ? 'Kata Sandi' : 'Password'}
-                  </label>
-                  <AuthFieldInput
-                    id={ids.password}
-                    name="password"
-                    autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
-                    icon={Lock}
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={setPassword}
-                    minLength={mode === 'register' ? 8 : undefined}
-                    ariaInvalid={!!error}
-                    ariaDescribedBy={error ? ids.error : undefined}
-                    placeholder="••••••••"
-                    rightSlot={
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword(!showPassword)}
-                        aria-label={showPassword
-                          ? (isID ? 'Sembunyikan kata sandi' : 'Hide password')
-                          : (isID ? 'Tampilkan kata sandi' : 'Show password')}
-                        aria-pressed={showPassword}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 min-w-11 min-h-11 inline-flex items-center justify-center text-slate-400 hover:text-navy transition-colors duration-200 cursor-pointer"
-                      >
-                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    }
-                  />
-                  {mode === 'register' && password.length > 0 && (
-                    <PasswordStrengthMeter password={password} isID={isID} />
-                  )}
-                  {mode === 'register' && (
-                    <p className="text-[12px] text-slate-500 mt-2">
-                      {isID ? 'Min. 8 karakter dengan kombinasi huruf & angka.' : 'Min. 8 characters with letters & numbers.'}
-                    </p>
-                  )}
-                </div>
-
-                {errorBanner}
-
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  aria-busy={isSubmitting}
-                  className="w-full min-h-12 py-3 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  {isSubmitting ? (
-                    <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" aria-hidden />
-                  ) : (
-                    <>
-                      <span>{mode === 'login' ? (isID ? 'Masuk' : 'Sign In') : (isID ? 'Daftar' : 'Create Account')}</span>
-                      <ArrowRight className="w-4 h-4" aria-hidden />
-                    </>
-                  )}
-                </button>
-
-                <div className="flex items-center gap-3 py-0.5">
-                  <div className="flex-1 h-px bg-navy-soft" />
-                  <span className="text-[11px] text-slate-400 uppercase tracking-wider">{isID ? 'atau' : 'or'}</span>
-                  <div className="flex-1 h-px bg-navy-soft" />
-                </div>
-
+              <div id={ids.tabPanel} role="tabpanel" aria-labelledby={mode === 'login' ? ids.loginTab : ids.registerTab}>
                 <GoogleSignInButton
                   isID={isID}
-                  onClick={handleGoogleSignIn}
+                  onCredential={handleGoogleSignIn}
                   submitting={isGoogleSubmitting}
-                  disabled={isSubmitting}
-                  configured={isGoogleSignInConfigured}
+                  disabled={busy}
                 />
 
-                <p className="text-center text-[13px] text-slate-500 pt-1">
-                  {mode === 'login' ? (isID ? 'Belum punya akun? ' : "Don't have an account? ") : (isID ? 'Sudah punya akun? ' : 'Already have an account? ')}
-                  <button
-                    type="button"
-                    onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(null); }}
-                    className="font-semibold text-navy hover:text-gold underline-offset-2 hover:underline transition-colors duration-200 cursor-pointer"
-                  >
-                    {mode === 'login' ? (isID ? 'Daftar sekarang' : 'Register') : (isID ? 'Masuk' : 'Sign In')}
+                <div className="my-4 flex items-center gap-3">
+                  <span className="h-px flex-1 bg-slate-200/80" />
+                  <span className="text-xs text-slate-500">{isID ? 'atau dengan email' : 'or with email'}</span>
+                  <span className="h-px flex-1 bg-slate-200/80" />
+                </div>
+
+                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                  <div>
+                    <div className="auth-mode-detail" data-open={mode === 'register'} inert={mode !== 'register'} aria-hidden={mode !== 'register'}>
+                      <div className="-mx-1 min-h-0 overflow-hidden px-1">
+                        <div className="pb-4">
+                          <label htmlFor={ids.name} className="mb-2 block text-[13px] font-semibold text-slate-700">
+                            {isID ? 'Nama lengkap' : 'Full name'}
+                          </label>
+                          <AuthFieldInput id={ids.name} name="name" autoComplete="name" icon={UserIcon} value={fullName} onChange={setFullName} disabled={busy || mode !== 'register'} placeholder={isID ? 'Nama sesuai identitas' : 'Your full name'} />
+                        </div>
+                      </div>
+                    </div>
+                    <label htmlFor={ids.email} className="mb-2 block text-[13px] font-semibold text-slate-700">
+                      {isID ? 'Alamat email' : 'Email address'}
+                    </label>
+                    <AuthFieldInput
+                      id={ids.email} name="email" autoComplete="email" icon={Mail} type="email" value={email} onChange={setEmail}
+                      disabled={busy} ariaInvalid={!!error} ariaDescribedBy={error ? ids.error : undefined}
+                      placeholder={isID ? 'nama@email.com' : 'you@example.com'}
+                      rightSlot={isValidEmail && <CheckCircle2 className="absolute right-4 top-1/2 size-4 -translate-y-1/2 text-emerald-600" aria-hidden />}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={ids.password} className="mb-2 block text-[13px] font-semibold text-slate-700">
+                      {isID ? 'Kata sandi' : 'Password'}
+                    </label>
+                    <AuthFieldInput
+                      id={ids.password} name="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} icon={Lock}
+                      type={showPassword ? 'text' : 'password'} value={password} onChange={setPassword}
+                      minLength={mode === 'register' ? 8 : undefined} disabled={busy}
+                      ariaInvalid={!!error} ariaDescribedBy={error ? ids.error : undefined}
+                      placeholder={mode === 'register' ? (isID ? 'Buat kata sandi Anda' : 'Create a password') : (isID ? 'Masukkan kata sandi' : 'Enter your password')}
+                      rightSlot={
+                        <button
+                          type="button" onClick={() => setShowPassword(!showPassword)} disabled={busy}
+                          aria-label={showPassword ? (isID ? 'Sembunyikan kata sandi' : 'Hide password') : (isID ? 'Tampilkan kata sandi' : 'Show password')}
+                          aria-pressed={showPassword}
+                          className="absolute right-1.5 top-1/2 inline-flex min-h-11 min-w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:text-navy disabled:cursor-not-allowed"
+                        >
+                          {showPassword ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+                        </button>
+                      }
+                    />
+                    <div className="auth-mode-detail" data-open={mode === 'register'} inert={mode !== 'register'} aria-hidden={mode !== 'register'}>
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="pt-2">
+                          {password.length > 0 && <PasswordStrengthMeter password={password} isID={isID} />}
+                          <p className="text-xs leading-5 text-slate-500">
+                            {isID ? 'Minimal 8 karakter, dengan kombinasi huruf dan angka.' : 'At least 8 characters, with letters and numbers.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {errorBanner}
+
+                  <button type="submit" disabled={busy} aria-busy={isSubmitting} className="auth-primary">
+                    {isSubmitting ? (
+                      <><span className="auth-spinner" aria-hidden /><span role="status">{mode === 'login' ? (isID ? 'Sedang masuk…' : 'Signing in…') : (isID ? 'Sedang membuat akun…' : 'Creating your account…')}</span></>
+                    ) : (
+                      <><span>{mode === 'login' ? (isID ? 'Masuk ke akun' : 'Sign in to your account') : (isID ? 'Buat akun Roomly' : 'Create your Roomly account')}</span><ArrowRight className="size-4" aria-hidden /></>
+                    )}
+                  </button>
+                </form>
+
+                <p className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-[13px] text-slate-500">
+                  {mode === 'login' ? (isID ? 'Baru di Roomly?' : 'New to Roomly?') : (isID ? 'Sudah punya akun?' : 'Already have an account?')}
+                  <button type="button" disabled={busy} onClick={() => switchMode(mode === 'login' ? 'register' : 'login')} className="inline-flex min-h-11 cursor-pointer items-center font-semibold text-navy underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-50">
+                    {mode === 'login' ? (isID ? 'Daftar sekarang' : 'Create an account') : (isID ? 'Masuk di sini' : 'Sign in here')}
                   </button>
                 </p>
-              </form>
+              </div>
             </>
           )}
-        </div>
+
+          {!otpAttempt && <div className="mt-3 flex items-center justify-center gap-1.5 border-t border-slate-100 pt-3 text-[11px] text-slate-500">
+            <LockKeyhole className="size-3" aria-hidden />
+            <span>{isID ? 'Data pribadi Anda tetap terlindungi.' : 'Your personal information stays protected.'}</span>
+          </div>}
+        </section>
       </motion.div>
     </motion.div>
   );

@@ -23,6 +23,19 @@ export interface CreateBookingRequest {
   childCount: number;
   guests: CreateBookingGuestRequest[];
   specialRequest?: string;
+  expectedTotalAmount?: number;
+}
+
+export type BookingQuoteRequest = Pick<CreateBookingRequest, 'roomId' | 'checkInDate' | 'checkOutDate'>;
+
+export interface BookingQuoteResponse {
+  currency: string;
+  subtotalAmount: number;
+  taxAmount: number;
+  serviceFeeAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  nights: { stayDate: string; pricePerNight: number }[];
 }
 
 export interface BookingGuestResponse {
@@ -55,6 +68,8 @@ export interface BookingResponse {
   hotelName: string | null;
   checkInDate: string;
   checkOutDate: string;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
   adultCount: number;
   childCount: number;
   nightsCount: number;

@@ -1,10 +1,12 @@
 import { http, SERVICE } from '../lib/http';
-import { BookingCancellationResponse, BookingResponse, CreateBookingRequest } from '../types/api';
+import { BookingCancellationResponse, BookingQuoteRequest, BookingQuoteResponse, BookingResponse, CreateBookingRequest } from '../types/api';
 
 const BASE = `${SERVICE.booking}/api/bookings`;
 const ADMIN_BASE = `${SERVICE.booking}/api/admin/bookings`;
 
 export const bookingApi = {
+  quote: (payload: BookingQuoteRequest, signal?: AbortSignal) =>
+    http.post<BookingQuoteResponse>(`${BASE}/quote`, payload, signal),
   create: (payload: CreateBookingRequest) => http.post<BookingResponse>(BASE, payload),
   getById: (bookingId: number) => http.get<BookingResponse>(`${BASE}/${bookingId}`),
   // Staff-only in practice: booking ownership is only enforced for CUSTOMER-role

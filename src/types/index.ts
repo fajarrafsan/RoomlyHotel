@@ -132,6 +132,8 @@ export interface Booking {
   hotelAddress: string;
   checkIn: string; // YYYY-MM-DD
   checkOut: string; // YYYY-MM-DD
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
   nights: number;
   guests: { adults: number; children: number };
   roomType: string;
@@ -139,6 +141,9 @@ export interface Booking {
   bedType: string;
   totalPrice: number;
   status: 'pending' | 'confirmed' | 'checked-in' | 'completed' | 'cancelled';
+  /** Preserve the server status for accurate guest-facing labels and actions. */
+  sourceStatus?: import('./api/booking').BookingStatus;
+  holdExpiresAt?: string | null;
   paymentStatus: 'unpaid' | 'pending' | 'paid' | 'failed' | 'expired' | 'cancelled' | 'refunded';
   paymentMethod: string;
   bookedAt: string;

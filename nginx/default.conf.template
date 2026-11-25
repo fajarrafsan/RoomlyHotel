@@ -1,0 +1,56 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 50m;
+
+    # Docker's embedded DNS lets Nginx start before the gateway and re-resolve
+    # it if the gateway container is recreated with a different IP address.
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $roomly_gateway http://${ROOMLY_GATEWAY_HOST}:${ROOMLY_GATEWAY_PORT};
+
+    # Keep API requests same-origin in the browser, while preserving the
+    # browser-facing host and origin for Roomly's CORS/cookie validation.
+    location ~ ^/(?:auth-service|hotel-service|room-service|booking-service|payment-service|review-service|notification-service|invoice-service|housekeeping-service)(?:/|$) {
+        proxy_pass $roomly_gateway$request_uri;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $http_host;
+        proxy_set_header Origin $http_origin;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Missing static images/assets must be a real 404, not the SPA shell.
+    location ^~ /images/ {
+        try_files $uri =404;
+        access_log off;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800";
+    }
+
+    location ^~ /assets/ {
+        try_files $uri =404;
+        access_log off;
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # React Router routes resolve to the application shell. The shell must be
+    # revalidated: a cached copy from before a rebuild points at hashed assets
+    # that no longer exist, which renders as a blank page.
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache" always;
+    }
+}

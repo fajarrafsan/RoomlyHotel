@@ -1,27 +1,44 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
+import { useLocation } from 'react-router-dom';
 import { Search, ArrowRight } from 'lucide-react';
+import { fadeTween } from '../../lib/motion';
 
 interface HeaderSearchDropdownProps {
   isID: boolean;
+  onOpen: () => void;
   onSubmit: (query: string) => void;
 }
 
-export const HeaderSearchDropdown: React.FC<HeaderSearchDropdownProps> = ({ isID, onSubmit }) => {
+export const HeaderSearchDropdown: React.FC<HeaderSearchDropdownProps> = ({ isID, onOpen, onSubmit }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const panelId = useId();
   const inputId = useId();
+  const reduced = useReducedMotion();
+  const { key: locationKey } = useLocation();
+  const searchLabel = isID ? 'Cari penginapan' : 'Search stays';
+
+  useEffect(() => setOpen(false), [locationKey]);
 
   useEffect(() => {
     if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    const closeOutside = (event: Event) => {
+      if (event.target instanceof Node && !wrapperRef.current?.contains(event.target)) setOpen(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+      document.addEventListener('focusin', closeOutside);
+    });
+    document.addEventListener('pointerdown', closeOutside);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('focusin', closeOutside);
+      document.removeEventListener('pointerdown', closeOutside);
+    };
   }, [open]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -34,54 +51,65 @@ export const HeaderSearchDropdown: React.FC<HeaderSearchDropdownProps> = ({ isID
   };
 
   return (
-    <div className="relative" ref={wrapperRef}>
-      <motion.button
+    <div className="flex shrink-0 lg:relative" ref={wrapperRef} onKeyDown={(event) => {
+      if (!open || event.key !== 'Escape') return;
+      event.stopPropagation();
+      setOpen(false);
+      triggerRef.current?.focus({ preventScroll: true });
+    }}>
+      <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) onOpen();
+          setOpen(!open);
+        }}
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         aria-haspopup="dialog"
-        whileHover={{ scale: 1.015 }}
-        whileTap={{ scale: 0.98 }}
-        className="hidden sm:inline-flex items-center justify-center gap-2 min-h-11 px-4 rounded-xl bg-gold hover:bg-gold-dark text-white font-semibold text-[13px] transition-colors duration-200 cursor-pointer"
+        aria-label={searchLabel}
+        className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2.5 rounded-full border border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600 transition-colors hover:border-navy/25 hover:bg-white hover:text-navy-dark aria-expanded:border-navy/30 aria-expanded:bg-navy-soft aria-expanded:text-navy-dark xl:w-[186px] xl:justify-start xl:px-4 2xl:w-[216px]"
       >
-        <Search className="w-4 h-4" aria-hidden />
-        <span>{isID ? 'Cari hotel' : 'Search'}</span>
-      </motion.button>
+        <Search className="size-[17px] shrink-0 text-gold-dark" aria-hidden />
+        <span className="hidden truncate text-left xl:inline">{searchLabel}</span>
+      </button>
 
       <AnimatePresence>
         {open && (
           <motion.div
+            id={panelId}
             role="dialog"
-            aria-label={isID ? 'Cari hotel' : 'Search hotels'}
-            initial={{ opacity: 0, y: 8 }}
+            aria-label={searchLabel}
+            initial={reduced ? false : { opacity: 0, y: -5 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.18 }}
-            className="absolute right-0 mt-3 w-80 bg-white text-slate-900 rounded-2xl shadow-[0_16px_40px_rgba(30,58,138,0.14)] border border-navy-soft z-50 overflow-hidden origin-top-right"
+            exit={reduced ? { opacity: 0 } : { opacity: 0, y: -5 }}
+            transition={reduced ? { duration: 0 } : fadeTween}
+            className="absolute top-full right-3 left-3 z-50 mt-2.5 rounded-[20px] border border-slate-200 bg-white text-slate-900 shadow-[0_16px_40px_rgba(15,35,68,0.16)] sm:right-8 sm:left-auto sm:w-[360px] lg:right-0"
           >
-            <form onSubmit={handleSubmit} className="p-3.5">
-              <label htmlFor={inputId} className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-2 px-0.5">
-                {isID ? 'Cari hotel' : 'Search hotels'}
+            <form onSubmit={handleSubmit} className="p-2.5">
+              <label htmlFor={inputId} className="sr-only">
+                {searchLabel}
               </label>
-              <div className="relative rounded-xl border border-navy-soft focus-within:border-navy focus-within:ring-2 focus-within:ring-navy/15 transition-all duration-200">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gold" aria-hidden />
+              <div className="flex items-center gap-2.5 rounded-[14px] border border-slate-200 pl-3.5 pr-1.5 transition-colors duration-200 focus-within:border-gold/50 focus-within:ring-2 focus-within:ring-gold/10">
+                <Search className="size-[18px] shrink-0 text-gold" aria-hidden />
                 <input
                   id={inputId}
-                  autoFocus
-                  type="text"
+                  ref={inputRef}
+                  type="search"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder={isID ? 'mis. Maya Ubud Resort' : 'e.g. Maya Ubud Resort'}
-                  className="w-full min-h-11 pl-9 pr-3 py-2.5 bg-transparent text-[14px] font-medium text-navy placeholder-slate-400 focus:outline-none rounded-xl"
+                  placeholder={isID ? 'Nama hotel, kota, atau provinsi' : 'Hotel name, city, or province'}
+                  style={{ outline: 'none' }}
+                  className="min-h-[52px] w-full min-w-0 bg-transparent text-[15px] font-medium text-navy-dark placeholder:font-normal placeholder:text-slate-500"
                 />
+                <button
+                  type="submit"
+                  aria-label={isID ? 'Cari' : 'Search'}
+                  className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-[10px] bg-navy-dark text-white transition-colors duration-200 hover:bg-navy"
+                >
+                  <ArrowRight className="size-4" aria-hidden />
+                </button>
               </div>
-              <button
-                type="submit"
-                className="w-full mt-2.5 min-h-11 py-2.5 rounded-xl bg-gold hover:bg-gold-dark text-white text-[13px] font-semibold transition-colors duration-200 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <span>{isID ? 'Cari' : 'Search'}</span>
-                <ArrowRight className="w-3.5 h-3.5" aria-hidden />
-              </button>
             </form>
           </motion.div>
         )}

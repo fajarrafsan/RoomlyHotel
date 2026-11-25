@@ -1,360 +1,233 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertCircle,
-  Ban,
-  BedDouble,
-  CheckCircle2,
-  ClipboardCheck,
-  Clock3,
-  Loader2,
-  Play,
-  Plus,
-  Save,
-  ShieldAlert,
-  UserRound,
-  Wrench,
-  X,
-} from 'lucide-react';
+import { useCallback, useState, type FormEvent } from 'react';
+import { Ban, BedDouble, CheckCircle2, ClipboardCheck, Clock3, LoaderCircle, Pencil, Play, Plus, ShieldAlert, Wrench } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useOperationsQuery } from '../hooks/useOperationsQuery';
 import { housekeepingApi } from '../api/housekeeping';
 import { ApiError } from '../lib/http';
-import { Language } from '../types';
-import {
-  CreateHousekeepingTaskRequest,
-  HousekeepingTaskResponse,
-  HousekeepingTaskStatus,
-  HousekeepingTaskType,
-} from '../types/api';
-import { AdminFilterChips, AdminPageShell } from '../components/admin/AdminPageShell';
+import type { Language } from '../types';
+import type { HousekeepingTaskResponse, HousekeepingTaskStatus, HousekeepingTaskType } from '../types/api';
 import { StatusPill } from '../components/admin/StatusPill';
+import { OperationsDialog } from '../components/admin/OperationsDialog';
+import { AdminCardsSkeleton } from '../components/admin/AdminSkeleton';
+import {
+  OperationsEmpty, OperationsFilters, OperationsNotice, OperationsPage,
+  operationButton, operationDanger, operationDate, operationField, operationPanel, operationPrimary, operationSecondary,
+} from '../components/admin/OperationsPage';
 
-const ACCESS_ROLES = new Set(['ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING', 'MAINTENANCE']);
-const MANAGER_ROLES = new Set(['ADMIN', 'RECEPTIONIST']);
-const WORKER_ROLES = new Set(['ADMIN', 'HOUSEKEEPING', 'MAINTENANCE']);
-
-const STATUS_OPTIONS = (isID: boolean) => [
-  { value: '', label: isID ? 'Semua' : 'All' },
-  { value: 'PENDING', label: isID ? 'Menunggu' : 'Pending' },
-  { value: 'IN_PROGRESS', label: isID ? 'Dikerjakan' : 'In progress' },
-  { value: 'DONE', label: isID ? 'Selesai' : 'Done' },
-  { value: 'CANCELLED', label: isID ? 'Dibatalkan' : 'Cancelled' },
-];
-
-const TYPE_LABELS: Record<HousekeepingTaskType, { id: string; en: string }> = {
-  CLEANING: { id: 'Pembersihan', en: 'Cleaning' },
-  INSPECTION: { id: 'Inspeksi', en: 'Inspection' },
-  MAINTENANCE: { id: 'Perawatan', en: 'Maintenance' },
+const accessRoles = new Set(['ADMIN', 'RECEPTIONIST', 'HOUSEKEEPING', 'MAINTENANCE']);
+const statusLabels: Record<HousekeepingTaskStatus, [string, string]> = {
+  PENDING: ['Menunggu', 'Pending'], IN_PROGRESS: ['Dikerjakan', 'In progress'],
+  DONE: ['Selesai', 'Done'], CANCELLED: ['Dibatalkan', 'Cancelled'],
 };
-
-const emptyForm: CreateHousekeepingTaskRequest = {
-  roomUnitId: 0,
-  taskType: 'CLEANING',
-  notes: '',
+const typeLabels: Record<HousekeepingTaskType, [string, string]> = {
+  CLEANING: ['Pembersihan', 'Cleaning'], INSPECTION: ['Inspeksi', 'Inspection'], MAINTENANCE: ['Perawatan', 'Maintenance'],
 };
+const emptyForm = { roomUnitId: '', hotelId: '', bookingId: '', assignee: '', taskType: 'CLEANING' as HousekeepingTaskType, notes: '' };
+const optionalId = (value: string) => Number.isInteger(Number(value)) && Number(value) > 0 ? Number(value) : undefined;
 
-function toOptionalNumber(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
-function dateTime(value: string | null): string {
-  if (!value) return '—';
-  return value.replace('T', ' ').slice(0, 16);
-}
-
-export const HousekeepingPage: React.FC<{ language: Language }> = ({ language }) => {
+export function HousekeepingPage({ language }: { language: Language }) {
   const isID = language === 'ID';
-  const { user } = useAuth();
-  const canAccess = !!user && ACCESS_ROLES.has(user.role);
-  const canManage = !!user && MANAGER_ROLES.has(user.role);
-  const canWork = !!user && WORKER_ROLES.has(user.role);
+  const locale = isID ? 0 : 1;
+  const { user, isLoading: authLoading } = useAuth();
+  const isAdmin = user?.role === 'ADMIN';
+  const allowed = Boolean(user && accessRoles.has(user.role));
+  const canManage = isAdmin || user?.role === 'RECEPTIONIST';
+  const canWork = isAdmin || user?.role === 'HOUSEKEEPING' || user?.role === 'MAINTENANCE';
 
-  const [tasks, setTasks] = useState<HousekeepingTaskResponse[]>([]);
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState<CreateHousekeepingTaskRequest>(emptyForm);
+  const read = useCallback(() => housekeepingApi.list(), [user?.userId]);
+  const { data, loading, error, refresh } = useOperationsQuery(read, allowed, isID ? 'Gagal memuat tugas housekeeping.' : 'Could not load housekeeping tasks.');
+  const tasks = data ?? [];
+  const [filter, setFilter] = useState('');
+  const [editor, setEditor] = useState<HousekeepingTaskResponse | 'create' | null>(null);
+  const [form, setForm] = useState(emptyForm);
   const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [editingTask, setEditingTask] = useState<HousekeepingTaskResponse | null>(null);
+  const [busy, setBusy] = useState<number | 'editor' | null>(null);
+  const [notice, setNotice] = useState<{ text: string; success: boolean } | null>(null);
 
-  const load = useCallback(async () => {
-    if (!canAccess) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await housekeepingApi.list({
-        status: (status || undefined) as HousekeepingTaskStatus | undefined,
-      });
-      setTasks(data);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat tugas housekeeping.' : 'Failed to load housekeeping tasks.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [canAccess, isID, status]);
+  const openEditor = (task: HousekeepingTaskResponse | 'create') => {
+    setEditor(task);
+    setFormError(null);
+    setForm(task === 'create' ? emptyForm : {
+      roomUnitId: String(task.roomUnitId),
+      hotelId: task.hotelId == null ? '' : String(task.hotelId),
+      bookingId: task.bookingId == null ? '' : String(task.bookingId),
+      assignee: task.assignedToUserId == null ? '' : String(task.assignedToUserId),
+      taskType: task.taskType,
+      notes: task.notes || '',
+    });
+  };
 
-  useEffect(() => { load(); }, [load]);
-
-  const counts = useMemo(() => ({
-    pending: tasks.filter((task) => task.status === 'PENDING').length,
-    inProgress: tasks.filter((task) => task.status === 'IN_PROGRESS').length,
-    done: tasks.filter((task) => task.status === 'DONE').length,
-  }), [tasks]);
-
-  const runTaskAction = async (
-    taskId: number,
-    action: () => Promise<HousekeepingTaskResponse>
-  ) => {
-    setBusyId(taskId);
-    setError(null);
+  const runTask = async (id: number, action: () => Promise<HousekeepingTaskResponse>, success: string) => {
+    if (busy != null || loading) return;
+    setBusy(id);
+    setNotice(null);
     try {
       await action();
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Aksi tugas gagal.' : 'Task action failed.'));
+      setNotice({ text: success, success: true });
+      await refresh();
+    } catch (failure) {
+      setNotice({ text: failure instanceof ApiError ? failure.message : (isID ? 'Tindakan gagal diproses.' : 'The task action failed.'), success: false });
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   };
 
-  const handleCreate = async (event: React.FormEvent) => {
+  const saveTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!Number.isInteger(form.roomUnitId) || form.roomUnitId <= 0) {
-      setFormError(isID ? 'ID unit kamar wajib berupa angka positif.' : 'Room unit ID must be a positive number.');
+    if (!editor || busy != null || !canManage) return;
+    const roomUnitId = optionalId(form.roomUnitId);
+    if (!roomUnitId) {
+      setFormError(isID ? 'ID unit kamar harus angka positif.' : 'Room unit ID must be a positive whole number.');
       return;
     }
-
-    setSaving(true);
+    setBusy('editor');
     setFormError(null);
+    setNotice(null);
     try {
-      const created = await housekeepingApi.create({
-        ...form,
-        bookingId: form.bookingId || undefined,
-        hotelId: user?.role === 'ADMIN' ? form.hotelId || undefined : user?.hotelId || undefined,
-        assignedToUserId: user?.role === 'ADMIN' ? form.assignedToUserId || undefined : undefined,
-        notes: form.notes?.trim() || undefined,
-      });
-      void created;
-      setForm(emptyForm);
-      setShowCreate(false);
-      await load();
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : (isID ? 'Gagal membuat tugas.' : 'Failed to create task.'));
+      if (editor === 'create') {
+        await housekeepingApi.create({
+          roomUnitId,
+          hotelId: isAdmin ? optionalId(form.hotelId) : user?.hotelId ?? undefined,
+          bookingId: optionalId(form.bookingId),
+          assignedToUserId: isAdmin ? optionalId(form.assignee) : undefined,
+          taskType: form.taskType,
+          notes: form.notes.trim() || undefined,
+        });
+      } else {
+        await housekeepingApi.update(editor.id, {
+          assignedToUserId: isAdmin ? optionalId(form.assignee) : undefined,
+          taskType: form.taskType,
+          notes: form.notes.trim(),
+        });
+      }
+      setNotice({ text: editor === 'create' ? (isID ? 'Tugas baru dibuat.' : 'Task created.') : (isID ? 'Perubahan tugas disimpan.' : 'Task updated.'), success: true });
+      setEditor(null);
+      await refresh();
+    } catch (failure) {
+      setFormError(failure instanceof ApiError ? failure.message : (isID ? 'Tugas tidak dapat disimpan.' : 'The task could not be saved.'));
     } finally {
-      setSaving(false);
+      setBusy(null);
     }
   };
 
-  const handleUpdate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!editingTask) return;
-    setSaving(true);
-    setFormError(null);
-    try {
-      const updated = await housekeepingApi.update(editingTask.id, {
-        ...(user?.role === 'ADMIN'
-          ? { assignedToUserId: editingTask.assignedToUserId || undefined }
-          : {}),
-        taskType: editingTask.taskType,
-        notes: editingTask.notes?.trim() || '',
-      });
-      void updated;
-      setEditingTask(null);
-      await load();
-    } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : (isID ? 'Gagal memperbarui tugas.' : 'Failed to update task.'));
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (!allowed) return (
+    <section className={operationPanel + ' mx-auto mt-6 max-w-lg p-6 text-center'}>
+      {authLoading ? <LoaderCircle className="mx-auto mb-3 size-7 text-navy motion-safe:animate-spin" aria-hidden /> : <ShieldAlert className="mx-auto mb-3 size-7 text-navy" aria-hidden />}
+      <h1 className="text-lg font-semibold text-navy-dark">{authLoading ? (isID ? 'Memeriksa sesi staf…' : 'Checking staff session…') : (isID ? 'Akses operasional diperlukan' : 'Operations access required')}</h1>
+      {!authLoading && <p className="mt-2 text-sm text-slate-600">{isID ? 'Halaman ini tersedia untuk admin, resepsionis, housekeeping, dan maintenance.' : 'This page is available to admins, receptionists, housekeeping, and maintenance staff.'}</p>}
+    </section>
+  );
 
-  if (!canAccess) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-4 py-20 px-4">
-        <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
-          <ShieldAlert className="w-6 h-6" />
-        </div>
-        <div>
-          <h1 className="text-lg font-semibold text-slate-900">{isID ? 'Akses operasional diperlukan' : 'Operations access required'}</h1>
-          <p className="text-sm text-slate-500 mt-1 max-w-md">
-            {isID ? 'Halaman ini tersedia untuk admin, resepsionis, housekeeping, dan maintenance.' : 'This page is available to admins, receptionists, housekeeping, and maintenance staff.'}
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const visible = filter ? tasks.filter(task => task.status === filter) : tasks;
+  const statusOptions = [{ value: '', label: isID ? 'Semua tugas' : 'All tasks' },
+    ...Object.entries(statusLabels).map(([value, labels]) => ({ value, label: labels[locale] }))];
+  const summaries = [
+    { status: 'PENDING', icon: Clock3, tone: 'bg-gold-soft text-gold-dark' },
+    { status: 'IN_PROGRESS', icon: Wrench, tone: 'bg-navy-soft text-navy' },
+    { status: 'DONE', icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-800' },
+  ] as const;
 
   return (
-    <AdminPageShell
-      icon={ClipboardCheck}
-      title={isID ? 'Operasional Housekeeping' : 'Housekeeping Operations'}
-      subtitle={isID ? 'Kelola pembersihan, inspeksi, dan perawatan unit kamar berdasarkan status nyata.' : 'Manage cleaning, inspections, and room maintenance with live task status.'}
-      endpoint="GET /api/admin/housekeeping/tasks"
-      isID={isID}
-      loading={loading}
-      error={error}
-      onRefresh={load}
-      filters={
-        <>
-          <AdminFilterChips options={STATUS_OPTIONS(isID)} active={status} onChange={setStatus} />
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => { setShowCreate((open) => !open); setFormError(null); }}
-              className="ml-auto min-h-11 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-            >
-              {showCreate ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              {showCreate ? (isID ? 'Tutup form' : 'Close form') : (isID ? 'Tugas baru' : 'New task')}
-            </button>
-          )}
-        </>
-      }
-    >
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[
-          { label: isID ? 'Menunggu' : 'Pending', value: counts.pending, icon: Clock3 },
-          { label: isID ? 'Dikerjakan' : 'In progress', value: counts.inProgress, icon: Wrench },
-          { label: isID ? 'Selesai pada hasil ini' : 'Done in result', value: counts.done, icon: CheckCircle2 },
-        ].map(({ label, value, icon: Icon }) => (
-          <div key={label} className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-2xl font-semibold text-slate-900">{value}</p>
-              <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+    <OperationsPage icon={ClipboardCheck} title="Housekeeping" description={isID ? 'Atur pembersihan, inspeksi, dan perawatan kamar.' : 'Manage room cleaning, inspections, and maintenance.'}
+      image="/images/seed/rooms/deluxe-1.jpg" isID={isID} loading={loading} onRefresh={() => void refresh()} blocked={busy != null || !!editor}
+      action={canManage && <button type="button" disabled={loading || busy != null} onClick={() => openEditor('create')} className={operationButton + ' bg-gold-soft text-navy-dark hover:bg-white'}><Plus className="size-4" aria-hidden />{isID ? 'Tugas baru' : 'New task'}</button>}>
+      <dl className="grid grid-cols-3 gap-2 sm:gap-4">
+        {summaries.map(({ status, icon: Icon, tone }) => (
+          <div key={status} className={operationPanel + ' p-3 sm:flex sm:items-center sm:gap-4 sm:p-5'}>
+            <span className={`mb-2 grid size-8 shrink-0 place-items-center rounded-lg sm:mb-0 sm:size-11 ${tone}`}><Icon className="size-4 sm:size-5" aria-hidden /></span>
+            <div className="min-w-0">
+              <dt className="break-words text-xs font-semibold text-slate-600 sm:text-sm">{statusLabels[status][locale]}</dt>
+              <dd className="mt-0.5 text-xl font-bold text-navy-dark tabular-nums sm:text-2xl">{loading || error ? '—' : tasks.filter(task => task.status === status).length}</dd>
             </div>
-            <span className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center"><Icon className="w-4 h-4" /></span>
           </div>
         ))}
-      </div>
+      </dl>
 
-      {showCreate && canManage && (
-        <form onSubmit={handleCreate} className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 space-y-4" noValidate>
+      {error && <OperationsNotice>{error}</OperationsNotice>}
+      {notice && <OperationsNotice success={notice.success}>{notice.text}</OperationsNotice>}
+
+      <section aria-labelledby="housekeeping-tasks" className="space-y-3">
+        <div className={operationPanel + ' flex flex-wrap items-center justify-between gap-3 p-4'}>
           <div>
-            <h2 className="text-sm font-semibold text-slate-900">{isID ? 'Buat tugas operasional' : 'Create operations task'}</h2>
-            <p className="text-xs text-slate-500 mt-1">{isID ? 'ID unit kamar wajib. Kolom lain dapat dilengkapi bila referensinya tersedia.' : 'Room unit ID is required. Add the other references when available.'}</p>
+            <h2 id="housekeeping-tasks" className="text-lg font-semibold text-navy-dark">{isID ? 'Daftar tugas' : 'Task list'}</h2>
+            {!loading && !error && <p className="mt-0.5 text-sm text-slate-600">{visible.length} {isID ? 'tugas ditampilkan' : 'tasks shown'}</p>}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <label className="space-y-1.5 text-xs font-medium text-slate-700">
-              <span>{isID ? 'ID unit kamar' : 'Room unit ID'} *</span>
-              <input type="number" min={1} required value={form.roomUnitId || ''} onChange={(e) => setForm((current) => ({ ...current, roomUnitId: Number(e.target.value) }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-            </label>
-            <label className="space-y-1.5 text-xs font-medium text-slate-700">
-              <span>ID hotel</span>
-              <input inputMode="numeric" value={form.hotelId ?? ''} onChange={(e) => setForm((current) => ({ ...current, hotelId: toOptionalNumber(e.target.value) }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-            </label>
-            <label className="space-y-1.5 text-xs font-medium text-slate-700">
-              <span>ID booking</span>
-              <input inputMode="numeric" value={form.bookingId ?? ''} onChange={(e) => setForm((current) => ({ ...current, bookingId: toOptionalNumber(e.target.value) }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-            </label>
-            {user?.role === 'ADMIN' && (
-              <label className="space-y-1.5 text-xs font-medium text-slate-700">
-                <span>{isID ? 'ID petugas' : 'Assignee user ID'}</span>
-                <input inputMode="numeric" value={form.assignedToUserId ?? ''} onChange={(e) => setForm((current) => ({ ...current, assignedToUserId: toOptionalNumber(e.target.value) }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-              </label>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-3">
-            <label className="space-y-1.5 text-xs font-medium text-slate-700">
-              <span>{isID ? 'Jenis tugas' : 'Task type'}</span>
-              <select value={form.taskType} onChange={(e) => setForm((current) => ({ ...current, taskType: e.target.value as HousekeepingTaskType }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-300">
-                {(Object.keys(TYPE_LABELS) as HousekeepingTaskType[]).map((type) => <option key={type} value={type}>{isID ? TYPE_LABELS[type].id : TYPE_LABELS[type].en}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1.5 text-xs font-medium text-slate-700">
-              <span>{isID ? 'Catatan' : 'Notes'}</span>
-              <input maxLength={1000} value={form.notes ?? ''} onChange={(e) => setForm((current) => ({ ...current, notes: e.target.value }))} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" />
-            </label>
-          </div>
-          {formError && <p role="alert" className="text-xs text-rose-700 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{formError}</p>}
-          <button type="submit" disabled={saving} className="min-h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            {isID ? 'Simpan tugas' : 'Save task'}
-          </button>
-        </form>
-      )}
-
-      {tasks.length === 0 && !loading ? (
-        <div className="bg-white rounded-2xl border border-slate-100 px-4 py-16 text-center">
-          <ClipboardCheck className="w-8 h-8 text-slate-300 mx-auto" />
-          <p className="text-sm font-medium text-slate-700 mt-3">{isID ? 'Tidak ada tugas untuk filter ini.' : 'No tasks match this filter.'}</p>
+          <OperationsFilters label={isID ? 'Status tugas' : 'Task status'} items={statusOptions} value={filter} onChange={setFilter} />
         </div>
-      ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-          {tasks.map((task) => {
-            const isBusy = busyId === task.id;
-            const isAdmin = user?.role === 'ADMIN';
-            const isAssignedToCurrentUser = task.assignedToUserId != null
-              && task.assignedToUserId === user?.userId;
-            const canStartTask = isAdmin
-              || (canWork && (task.assignedToUserId == null || isAssignedToCurrentUser));
-            const canCompleteTask = isAdmin
-              || (canWork && isAssignedToCurrentUser);
-            return (
-              <article key={task.id} className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-5 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <span className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0"><BedDouble className="w-4 h-4" /></span>
-                    <div className="min-w-0">
-                      <h2 className="text-sm font-semibold text-slate-900">{isID ? 'Unit kamar' : 'Room unit'} #{task.roomUnitId}</h2>
-                      <p className="text-xs text-slate-500 mt-1">{isID ? TYPE_LABELS[task.taskType].id : TYPE_LABELS[task.taskType].en} · Task #{task.id}</p>
+
+        {loading && visible.length === 0 ? <AdminCardsSkeleton isID={isID} layout="tasks" /> : visible.length === 0 ? (
+          <div className={operationPanel}><OperationsEmpty loading={false} isID={isID} empty={error ? (isID ? 'Daftar tugas belum tersedia.' : 'The task list is unavailable.') : (isID ? 'Tidak ada tugas untuk filter ini.' : 'No tasks match this filter.')} /></div>
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-2 lg:gap-4">
+            {visible.map(task => {
+              const working = busy === task.id;
+              const blocked = loading || busy != null;
+              const mine = task.assignedToUserId != null && task.assignedToUserId === user?.userId;
+              const start = task.status === 'PENDING' && (isAdmin || (canWork && (mine || task.assignedToUserId == null)));
+              const complete = task.status === 'IN_PROGRESS' && (isAdmin || (canWork && mine));
+              const editable = canManage && (task.status === 'PENDING' || task.status === 'IN_PROGRESS');
+
+              return (
+                <article key={task.id} className={operationPanel + ' flex min-w-0 flex-col gap-3.5 p-4 sm:p-5'}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-navy-soft text-navy"><BedDouble className="size-5" aria-hidden /></span>
+                      <div className="min-w-0">
+                        <h3 className="text-base font-semibold text-navy-dark">{typeLabels[task.taskType]?.[locale] ?? task.taskType}</h3>
+                        <p className="text-sm text-slate-600">{isID ? 'Unit kamar' : 'Room unit'} #{task.roomUnitId} · {isID ? 'Tugas' : 'Task'} #{task.id}</p>
+                      </div>
                     </div>
+                    <StatusPill status={task.status} label={statusLabels[task.status]?.[locale]} />
                   </div>
-                  <StatusPill status={task.status} />
-                </div>
-
-                <dl className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                  <div><dt className="text-slate-400">Hotel</dt><dd className="font-medium text-slate-700 mt-1">{task.hotelId ?? '—'}</dd></div>
-                  <div><dt className="text-slate-400">Booking</dt><dd className="font-medium text-slate-700 mt-1">{task.bookingId ?? '—'}</dd></div>
-                  <div><dt className="text-slate-400">{isID ? 'Petugas' : 'Assignee'}</dt><dd className="font-medium text-slate-700 mt-1 inline-flex items-center gap-1"><UserRound className="w-3.5 h-3.5" />{task.assignedToUserId ?? '—'}</dd></div>
-                  <div><dt className="text-slate-400">{isID ? 'Dibuat' : 'Created'}</dt><dd className="font-medium text-slate-700 mt-1">{dateTime(task.createdAt)}</dd></div>
-                </dl>
-
-                {task.notes && <p className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 text-xs leading-relaxed text-slate-600">{task.notes}</p>}
-
-                <div className="flex flex-wrap gap-2 pt-1 border-t border-slate-100">
-                  {isBusy && <span className="min-h-11 px-3 inline-flex items-center gap-2 text-xs text-slate-500"><Loader2 className="w-4 h-4 animate-spin" />{isID ? 'Memproses' : 'Processing'}</span>}
-                  {!isBusy && canStartTask && task.status === 'PENDING' && (
-                    <button onClick={() => runTaskAction(task.id, () => housekeepingApi.start(task.id, user?.role === 'ADMIN' ? task.assignedToUserId ?? undefined : user?.userId))} className="min-h-11 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"><Play className="w-4 h-4" />{isID ? 'Mulai' : 'Start'}</button>
-                  )}
-                  {!isBusy && canCompleteTask && task.status === 'IN_PROGRESS' && (
-                    <button onClick={() => runTaskAction(task.id, () => housekeepingApi.complete(task.id))} className="min-h-11 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"><CheckCircle2 className="w-4 h-4" />{isID ? 'Selesaikan' : 'Complete'}</button>
-                  )}
-                  {!isBusy && canManage && task.status !== 'DONE' && task.status !== 'CANCELLED' && (
-                    <>
-                      <button onClick={() => { setEditingTask(task); setFormError(null); }} className="min-h-11 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold inline-flex items-center gap-2 cursor-pointer">{isID ? 'Edit' : 'Edit'}</button>
-                      {task.status === 'PENDING' && (
-                        <button onClick={() => runTaskAction(task.id, () => housekeepingApi.cancel(task.id))} className="min-h-11 px-4 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-semibold inline-flex items-center gap-2 cursor-pointer"><Ban className="w-4 h-4" />{isID ? 'Batalkan' : 'Cancel'}</button>
+                  <dl className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-sm sm:grid-cols-4">
+                    <div><dt className="text-xs text-slate-600">Hotel</dt><dd className="mt-1 font-semibold">{task.hotelId == null ? '—' : `#${task.hotelId}`}</dd></div>
+                    <div><dt className="text-xs text-slate-600">{isID ? 'Reservasi' : 'Reservation'}</dt><dd className="mt-1 font-semibold">{task.bookingId == null ? '—' : `#${task.bookingId}`}</dd></div>
+                    <div><dt className="text-xs text-slate-600">{isID ? 'Petugas' : 'Assignee'}</dt><dd className="mt-1 font-semibold">{task.assignedToUserId == null ? '—' : `#${task.assignedToUserId}`}</dd></div>
+                    <div><dt className="text-xs text-slate-600">{isID ? 'Dibuat' : 'Created'}</dt><dd className="mt-1 text-xs font-medium">{operationDate(task.createdAt, language)}</dd></div>
+                  </dl>
+                  {task.notes && <p className="whitespace-pre-wrap break-words text-sm leading-5 text-slate-700">{task.notes}</p>}
+                  {(working || start || complete || editable) && (
+                    <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-200 pt-3">
+                      {working ? <span role="status" className="inline-flex min-h-11 items-center gap-2 text-sm text-slate-600"><LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />{isID ? 'Memproses…' : 'Processing…'}</span> : (
+                        <>
+                          {start && <button type="button" disabled={blocked} className={operationPrimary} onClick={() => void runTask(task.id, () => housekeepingApi.start(task.id, isAdmin ? task.assignedToUserId ?? undefined : user?.userId), isID ? 'Tugas dimulai.' : 'Task started.')}><Play className="size-4" aria-hidden />{isID ? 'Mulai' : 'Start'}</button>}
+                          {complete && <button type="button" disabled={blocked} className={operationPrimary} onClick={() => void runTask(task.id, () => housekeepingApi.complete(task.id), isID ? 'Tugas diselesaikan.' : 'Task completed.')}><CheckCircle2 className="size-4" aria-hidden />{isID ? 'Selesaikan' : 'Complete'}</button>}
+                          {editable && <button type="button" disabled={blocked} className={operationSecondary} onClick={() => openEditor(task)}><Pencil className="size-4" aria-hidden />Edit</button>}
+                          {editable && task.status === 'PENDING' && <button type="button" disabled={blocked} className={operationDanger} onClick={() => void runTask(task.id, () => housekeepingApi.cancel(task.id), isID ? 'Tugas dibatalkan.' : 'Task cancelled.')}><Ban className="size-4" aria-hidden />{isID ? 'Batalkan' : 'Cancel'}</button>}
+                        </>
                       )}
-                    </>
+                    </div>
                   )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
-      {editingTask && canManage && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="edit-housekeeping-title">
-          <form onSubmit={handleUpdate} className="w-full max-w-lg bg-white rounded-2xl border border-slate-100 p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div><h2 id="edit-housekeeping-title" className="text-base font-semibold text-slate-900">{isID ? 'Edit tugas' : 'Edit task'} #{editingTask.id}</h2><p className="text-xs text-slate-500 mt-1">{isID ? 'Ubah penugasan, jenis, atau catatan.' : 'Change assignment, type, or notes.'}</p></div>
-              <button type="button" onClick={() => setEditingTask(null)} className="w-11 h-11 rounded-xl hover:bg-slate-100 text-slate-500 flex items-center justify-center cursor-pointer" aria-label={isID ? 'Tutup' : 'Close'}><X className="w-4 h-4" /></button>
+      {editor && canManage && (
+        <OperationsDialog title={editor === 'create' ? (isID ? 'Tugas baru' : 'New task') : `${isID ? 'Edit tugas' : 'Edit task'} #${editor.id}`} isID={isID} busy={busy === 'editor'} onClose={() => setEditor(null)}>
+          <form onSubmit={saveTask} className="space-y-4">
+            <fieldset disabled={busy === 'editor'} className="space-y-3">
+              {editor === 'create' && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-sm font-semibold">{isID ? 'ID unit kamar' : 'Room unit ID'}<input type="number" min={1} required value={form.roomUnitId} onChange={event => setForm({ ...form, roomUnitId: event.target.value })} className={operationField + ' mt-1'} /></label>
+                  {isAdmin && <label className="block text-sm font-semibold">ID hotel<input type="number" min={1} value={form.hotelId} onChange={event => setForm({ ...form, hotelId: event.target.value })} className={operationField + ' mt-1'} /></label>}
+                  <label className="block text-sm font-semibold">{isID ? 'ID reservasi' : 'Reservation ID'}<input type="number" min={1} value={form.bookingId} onChange={event => setForm({ ...form, bookingId: event.target.value })} className={operationField + ' mt-1'} /></label>
+                </div>
+              )}
+              {isAdmin && <label className="block text-sm font-semibold">{isID ? 'ID petugas' : 'Assignee ID'}<input type="number" min={1} value={form.assignee} onChange={event => setForm({ ...form, assignee: event.target.value })} className={operationField + ' mt-1'} /></label>}
+              <label className="block text-sm font-semibold">{isID ? 'Jenis tugas' : 'Task type'}<select value={form.taskType} onChange={event => setForm({ ...form, taskType: event.target.value as HousekeepingTaskType })} className={operationField + ' mt-1'}>{Object.entries(typeLabels).map(([value, labels]) => <option key={value} value={value}>{labels[locale]}</option>)}</select></label>
+              <label className="block text-sm font-semibold">{isID ? 'Catatan' : 'Notes'}<textarea maxLength={1000} rows={3} value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} className={operationField + ' mt-1 resize-y'} /></label>
+            </fieldset>
+            {formError && <OperationsNotice>{formError}</OperationsNotice>}
+            <div className="flex justify-end gap-2">
+              <button type="button" disabled={busy === 'editor'} onClick={() => setEditor(null)} className={operationSecondary}>{isID ? 'Batal' : 'Cancel'}</button>
+              <button type="submit" disabled={busy === 'editor'} className={operationPrimary}>{busy === 'editor' && <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />}{editor === 'create' ? (isID ? 'Simpan tugas' : 'Save task') : (isID ? 'Simpan perubahan' : 'Save changes')}</button>
             </div>
-            {user?.role === 'ADMIN' && (
-              <label className="block space-y-1.5 text-xs font-medium text-slate-700"><span>{isID ? 'ID petugas' : 'Assignee user ID'}</span><input inputMode="numeric" value={editingTask.assignedToUserId ?? ''} onChange={(e) => setEditingTask((current) => current ? { ...current, assignedToUserId: toOptionalNumber(e.target.value) ?? null } : current)} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300" /></label>
-            )}
-            <label className="block space-y-1.5 text-xs font-medium text-slate-700"><span>{isID ? 'Jenis tugas' : 'Task type'}</span><select value={editingTask.taskType} onChange={(e) => setEditingTask((current) => current ? { ...current, taskType: e.target.value as HousekeepingTaskType } : current)} className="w-full min-h-11 rounded-xl border border-slate-200 px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-300">{(Object.keys(TYPE_LABELS) as HousekeepingTaskType[]).map((type) => <option key={type} value={type}>{isID ? TYPE_LABELS[type].id : TYPE_LABELS[type].en}</option>)}</select></label>
-            <label className="block space-y-1.5 text-xs font-medium text-slate-700"><span>{isID ? 'Catatan' : 'Notes'}</span><textarea rows={4} maxLength={1000} value={editingTask.notes ?? ''} onChange={(e) => setEditingTask((current) => current ? { ...current, notes: e.target.value } : current)} className="w-full rounded-xl border border-slate-200 p-3 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-slate-300" /></label>
-            {formError && <p role="alert" className="text-xs text-rose-700 flex items-center gap-2"><AlertCircle className="w-4 h-4" />{formError}</p>}
-            <button type="submit" disabled={saving} className="min-h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-50">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}{isID ? 'Simpan perubahan' : 'Save changes'}</button>
           </form>
-        </div>
+        </OperationsDialog>
       )}
-    </AdminPageShell>
+    </OperationsPage>
   );
-};
+}

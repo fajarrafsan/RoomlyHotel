@@ -8,6 +8,9 @@ interface AuthFieldInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  disabled?: boolean;
   inputMode?: 'text' | 'numeric' | 'email';
   autoFocus?: boolean;
   id?: string;
@@ -30,6 +33,9 @@ export const AuthFieldInput: React.FC<AuthFieldInputProps> = ({
   onChange,
   placeholder,
   minLength,
+  maxLength,
+  pattern,
+  disabled,
   inputMode,
   autoFocus,
   id,
@@ -46,15 +52,17 @@ export const AuthFieldInput: React.FC<AuthFieldInputProps> = ({
 
   return (
     <div
-      className={`relative rounded-xl border bg-[#F8FAFC] transition-colors duration-200 ${
-        focused
-          ? 'border-navy ring-2 ring-navy/15 bg-white'
-          : 'border-navy-soft hover:border-navy/30'
+      className={`relative rounded-xl border bg-slate-50/70 transition-colors duration-200 ${
+        ariaInvalid
+          ? 'border-rose-400 ring-2 ring-rose-100'
+          : focused
+            ? 'border-navy/65 ring-[3px] ring-navy/10 bg-white'
+            : 'border-slate-200 hover:border-slate-300'
       }`}
     >
       <Icon
         className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors duration-200 ${
-          focused ? 'text-gold' : 'text-slate-400'
+          focused ? 'text-navy' : 'text-slate-500'
         }`}
         aria-hidden
       />
@@ -62,6 +70,7 @@ export const AuthFieldInput: React.FC<AuthFieldInputProps> = ({
         id={id}
         name={name}
         required={required}
+        disabled={disabled}
         tabIndex={tabIndex}
         type={type}
         inputMode={inputMode}
@@ -74,8 +83,10 @@ export const AuthFieldInput: React.FC<AuthFieldInputProps> = ({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         minLength={minLength}
+        maxLength={maxLength}
+        pattern={pattern}
         placeholder={placeholder}
-        className={`w-full min-h-12 pl-10 py-3 bg-transparent text-[14px] font-medium text-navy placeholder-slate-400 focus:outline-none rounded-xl ${rightSlot ? 'pr-12' : 'pr-4'} ${inputClassName}`}
+        className={`w-full min-h-[50px] pl-11 py-3 bg-transparent text-base sm:text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none rounded-xl disabled:cursor-not-allowed disabled:opacity-60 ${rightSlot ? 'pr-12' : 'pr-4'} ${inputClassName}`}
       />
       {rightSlot}
     </div>

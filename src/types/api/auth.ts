@@ -21,8 +21,14 @@ export interface AuthResponseDto {
   hotelId: number | null;
 }
 
+export interface AdminOtpChallengeDto {
+  challengeId: string;
+  expiresInSeconds: number;
+}
+
 export interface LoginResultDto {
   otpRequired: boolean;
+  otpChallenge?: AdminOtpChallengeDto | null;
   message: string;
   user: AuthResponseDto;
   accessToken: string | null;

@@ -1,408 +1,362 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { CreditCard, Ban, Loader2, RotateCcw, Undo2, X, AlertCircle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  ArrowRight, Ban, CalendarClock, CheckCircle2, CreditCard, Hourglass, LoaderCircle, ReceiptText,
+  RotateCw, Search, Undo2, Wallet, X,
+} from 'lucide-react';
 import { adminApi } from '../api/admin';
 import { paymentApi } from '../api/payments';
+import { useAuth } from '../context/AuthContext';
+import { useOperationsQuery } from '../hooks/useOperationsQuery';
 import { ApiError } from '../lib/http';
 import { formatCurrency } from '../lib/utils';
-import { Language } from '../types';
-import { BookingCancellationResponse, CancellationStatus } from '../types/api/booking';
-import { PaymentResponse } from '../types/api/payment';
+import type { Language } from '../types';
+import type { BookingCancellationResponse, CancellationStatus, PaymentResponse, PaymentStatus, RefundStatus } from '../types/api';
 import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
-import { AdminFilterChips, AdminPageShell, AdminTableCard } from '../components/admin/AdminPageShell';
+import { OperationsDialog } from '../components/admin/OperationsDialog';
+import {
+  OperationsEmpty, OperationsList, OperationsNotice, operationDanger, operationDate, operationField,
+  operationPrimary, operationSecondary,
+} from '../components/admin/OperationsPage';
 import { StatusPill } from '../components/admin/StatusPill';
 
-const PAYMENT_STATUS_OPTIONS = (isID: boolean) => [
-  { value: '', label: isID ? 'Semua' : 'All' },
-  { value: 'PENDING', label: 'Pending' },
-  { value: 'PAID', label: 'Paid' },
-  { value: 'FAILED', label: 'Failed' },
-  { value: 'EXPIRED', label: 'Expired' },
-  { value: 'CANCELLED', label: 'Cancelled' },
-  { value: 'REFUNDED', label: 'Refunded' },
-];
+const paymentLabels: Record<PaymentStatus, [string, string]> = {
+  PENDING: ['Menunggu', 'Pending'], PAID: ['Lunas', 'Paid'], FAILED: ['Gagal', 'Failed'],
+  EXPIRED: ['Kedaluwarsa', 'Expired'], CANCELLED: ['Dibatalkan', 'Cancelled'], REFUNDED: ['Dana dikembalikan', 'Refunded'],
+};
+const cancellationLabels: Record<CancellationStatus, [string, string]> = {
+  REQUESTED: ['Diajukan', 'Requested'], COMPLETED: ['Selesai', 'Completed'], REJECTED: ['Ditolak', 'Rejected'],
+};
+const refundLabels: Record<RefundStatus, [string, string]> = {
+  NOT_REQUIRED: ['Tidak diperlukan', 'Not required'], PENDING: ['Menunggu', 'Pending'], PROCESSING: ['Diproses', 'Processing'],
+  REFUNDED: ['Dana dikembalikan', 'Refunded'], FAILED: ['Gagal', 'Failed'], REJECTED: ['Ditolak', 'Rejected'],
+};
+const emptyRefund = { amount: '', reason: '', force: false };
 
-const CANCELLATION_STATUS_OPTIONS = (isID: boolean) => [
-  { value: '', label: isID ? 'Semua' : 'All' },
-  { value: 'REQUESTED', label: isID ? 'Diajukan' : 'Requested' },
-  { value: 'COMPLETED', label: isID ? 'Selesai' : 'Completed' },
-  { value: 'REJECTED', label: isID ? 'Ditolak' : 'Rejected' },
-];
+type Mode = 'details' | 'refund' | 'expire' | 'cancel';
+type View = 'payments' | 'cancellations';
 
-const dateTime = (value: string | null) => (value ? value.replace('T', ' ').slice(0, 16) : '—');
+function paymentAmount(payment: PaymentResponse, language: Language) {
+  const currency = payment.currency?.trim().toUpperCase();
+  return new Intl.NumberFormat(language === 'ID' ? 'id-ID' : 'en-US', {
+    style: 'currency',
+    currency: currency && /^[A-Z]{3}$/.test(currency) ? currency : 'IDR',
+    minimumFractionDigits: Number.isInteger(payment.amount) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(payment.amount);
+}
 
-export const AdminPaymentsPage: React.FC<{ language: Language; onOpenAuth?: () => void }> = ({
-  language,
-  onOpenAuth,
-}) => {
-  const isID = language === 'ID';
-  const [tab, setTab] = useState<'payments' | 'cancellations'>('payments');
+function paymentMethod(payment: PaymentResponse) {
+  return payment.paymentMethod?.replaceAll('_', ' ') || '—';
+}
 
-  const [payments, setPayments] = useState<PaymentResponse[]>([]);
-  const [cancellations, setCancellations] = useState<BookingCancellationResponse[]>([]);
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [refundTarget, setRefundTarget] = useState<PaymentResponse | null>(null);
-  const [refundForm, setRefundForm] = useState({ amount: '', reason: '', force: false });
-  const [refundError, setRefundError] = useState<string | null>(null);
-  const [refunding, setRefunding] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (tab === 'payments') {
-        setPayments(await adminApi.listPayments(status || undefined));
-      } else {
-        setCancellations(await adminApi.listCancellations((status || undefined) as CancellationStatus | undefined));
-      }
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat data.' : 'Failed to load data.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, status, isID]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const applyUpdated = (updated: PaymentResponse) =>
-    setPayments((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-
-  const runPaymentAction = async (
-    payment: PaymentResponse,
-    action: () => Promise<PaymentResponse>,
-    fallbackMessage: string
-  ) => {
-    setBusyId(payment.id);
-    setError(null);
-    try {
-      applyUpdated(await action());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : fallbackMessage);
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  // payment-service only allows expiring a payment that hasn't settled yet.
-  const handleExpire = (payment: PaymentResponse) =>
-    runPaymentAction(
-      payment,
-      () => adminApi.expirePayment(payment.id),
-      isID ? 'Gagal menghentikan pembayaran.' : 'Failed to expire payment.'
-    );
-
-  // Cancel voids the Midtrans transaction as well, so it is only offered while
-  // the payment is still open.
-  const handleCancel = (payment: PaymentResponse) =>
-    runPaymentAction(
-      payment,
-      () => paymentApi.cancel(payment.id),
-      isID ? 'Gagal membatalkan pembayaran.' : 'Failed to cancel payment.'
-    );
-
-  const openRefund = (payment: PaymentResponse) => {
-    setRefundTarget(payment);
-    setRefundForm({ amount: '', reason: '', force: false });
-    setRefundError(null);
-  };
-
-  const handleRefund = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!refundTarget) return;
-
-    const amount = refundForm.amount.trim() === '' ? undefined : Number(refundForm.amount);
-    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) {
-      setRefundError(isID ? 'Nominal refund harus lebih besar dari 0.' : 'The refund amount must be greater than 0.');
-      return;
-    }
-    // The backend requires a reason whenever an active booking is force-refunded;
-    // catching it here saves a round trip and explains the rule up front.
-    if (refundForm.force && !refundForm.reason.trim()) {
-      setRefundError(isID ? 'Alasan wajib diisi untuk refund paksa.' : 'A reason is required for a forced refund.');
-      return;
-    }
-
-    setRefunding(true);
-    setRefundError(null);
-    try {
-      const updated = await paymentApi.refund(refundTarget.id, {
-        amount,
-        reason: refundForm.reason.trim() || undefined,
-        force: refundForm.force || undefined,
-      });
-      applyUpdated(updated);
-      setRefundTarget(null);
-    } catch (err) {
-      setRefundError(
-        err instanceof ApiError ? err.message : (isID ? 'Gagal memproses refund.' : 'Failed to process the refund.')
-      );
-    } finally {
-      setRefunding(false);
-    }
-  };
-
-  const isEmpty = tab === 'payments' ? payments.length === 0 : cancellations.length === 0;
+function PaymentOverview({ rows, view, status, isID, onStatus }: {
+  rows: (PaymentResponse | BookingCancellationResponse)[] | undefined;
+  view: View;
+  status: string;
+  isID: boolean;
+  onStatus: (status: string) => void;
+}) {
+  const payments = view === 'payments';
+  const metrics = [
+    { key: '', icon: Wallet, tone: 'bg-white/10 text-[#f0d58f]', label: payments ? (isID ? 'Semua transaksi' : 'All transactions') : (isID ? 'Semua pembatalan' : 'All cancellations') },
+    { key: payments ? 'PAID' : 'COMPLETED', icon: CheckCircle2, tone: 'bg-emerald-300/15 text-emerald-200', label: payments ? (isID ? 'Pembayaran lunas' : 'Paid') : (isID ? 'Selesai' : 'Completed') },
+    { key: payments ? 'PENDING' : 'REQUESTED', icon: Hourglass, tone: 'bg-amber-300/15 text-amber-200', label: payments ? (isID ? 'Menunggu bayar' : 'Awaiting payment') : (isID ? 'Diajukan' : 'Requested') },
+  ];
 
   return (
-    <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>
-      <AdminPageShell
-        icon={CreditCard}
-        title={isID ? 'Pembayaran & Pembatalan' : 'Payments & Cancellations'}
-        subtitle={
-          isID
-            ? 'Seluruh transaksi Midtrans dan pengajuan pembatalan pada sistem, lintas semua tamu.'
-            : 'Every Midtrans transaction and cancellation record across all guests.'
-        }
-        endpoint={tab === 'payments' ? 'GET /api/admin/payments' : 'GET /api/admin/cancellations'}
-        isID={isID}
-        loading={loading}
-        error={error}
-        onRefresh={load}
-        filters={
-          <>
-            <div className="flex items-center gap-1 mr-2">
-              {(['payments', 'cancellations'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => { setTab(t); setStatus(''); }}
-                  className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer ${
-                    tab === t ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-                  }`}
-                >
-                  {t === 'payments'
-                    ? (isID ? 'Pembayaran' : 'Payments')
-                    : (isID ? 'Pembatalan' : 'Cancellations')}
-                </button>
-              ))}
-            </div>
-            <span className="w-px h-5 bg-slate-200" />
-            <AdminFilterChips
-              options={tab === 'payments' ? PAYMENT_STATUS_OPTIONS(isID) : CANCELLATION_STATUS_OPTIONS(isID)}
-              active={status}
-              onChange={setStatus}
-            />
-          </>
-        }
-      >
-        <AdminTableCard
-          isID={isID}
-          loading={loading}
-          isEmpty={isEmpty}
-          emptyLabel={isID ? 'Tidak ada data untuk filter ini.' : 'No records match this filter.'}
-        >
-          {tab === 'payments' ? (
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="px-4 py-3">{isID ? 'Kode' : 'Code'}</th>
-                  <th className="px-4 py-3">Booking</th>
-                  <th className="px-4 py-3">{isID ? 'Metode' : 'Method'}</th>
-                  <th className="px-4 py-3 text-right">{isID ? 'Jumlah' : 'Amount'}</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">{isID ? 'Dibayar' : 'Paid at'}</th>
-                  <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 text-slate-700">
-                {payments.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{p.paymentCode}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{p.bookingCode}</td>
-                    <td className="px-4 py-3 text-slate-500">{p.paymentMethod || p.gateway || '—'}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
-                      {formatCurrency(p.amount)}
-                    </td>
-                    <td className="px-4 py-3"><StatusPill status={p.status} /></td>
-                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap">{dateTime(p.paidAt)}</td>
-                    <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
-                      {busyId === p.id ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          {isID ? 'Memproses' : 'Processing'}
-                        </span>
-                      ) : (
-                        <>
-                          {p.status === 'PENDING' && (
-                            <>
-                              <button
-                                onClick={() => handleExpire(p)}
-                                className="px-2.5 py-1 rounded-lg border border-rose-200 text-rose-600 hover:bg-rose-50 font-semibold text-[11px] transition-all inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Ban className="w-3 h-3" />
-                                <span>{isID ? 'Kedaluwarsakan' : 'Expire'}</span>
-                              </button>
-                              <button
-                                onClick={() => handleCancel(p)}
-                                className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold text-[11px] transition-all inline-flex items-center gap-1 cursor-pointer"
-                                title={isID ? 'Batalkan transaksi di Midtrans' : 'Void the transaction at Midtrans'}
-                              >
-                                <X className="w-3 h-3" />
-                                <span>{isID ? 'Batalkan' : 'Cancel'}</span>
-                              </button>
-                            </>
-                          )}
-
-                          {p.status === 'PAID' && (
-                            <button
-                              onClick={() => openRefund(p)}
-                              className="px-2.5 py-1 rounded-lg border border-amber-200 text-amber-700 hover:bg-amber-50 font-semibold text-[11px] transition-all inline-flex items-center gap-1 cursor-pointer"
-                              title={isID ? 'Kembalikan dana ke tamu' : 'Refund the guest'}
-                            >
-                              <Undo2 className="w-3 h-3" />
-                              <span>Refund</span>
-                            </button>
-                          )}
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-                <tr>
-                  <th className="px-4 py-3">Booking</th>
-                  <th className="px-4 py-3">{isID ? 'Dibatalkan Oleh' : 'Cancelled by'}</th>
-                  <th className="px-4 py-3">{isID ? 'Alasan' : 'Reason'}</th>
-                  <th className="px-4 py-3 text-right">{isID ? 'Biaya' : 'Fee'}</th>
-                  <th className="px-4 py-3 text-right">Refund</th>
-                  <th className="px-4 py-3">{isID ? 'Status pembatalan' : 'Cancellation status'}</th>
-                  <th className="px-4 py-3">Refund status</th>
-                  <th className="px-4 py-3">{isID ? 'Tanggal' : 'Date'}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50 text-slate-700">
-                {cancellations.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{c.bookingCode}</td>
-                    <td className="px-4 py-3 text-slate-500">{c.cancelledByRole || '—'}</td>
-                    <td className="px-4 py-3 text-slate-500 max-w-[220px] truncate" title={c.cancellationReason || ''}>
-                      {c.cancellationReason || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {c.cancellationFeeAmount != null ? formatCurrency(c.cancellationFeeAmount) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">
-                      {c.refundAmount != null ? formatCurrency(c.refundAmount) : '—'}
-                    </td>
-                    <td className="px-4 py-3"><StatusPill status={c.status} /></td>
-                    <td className="px-4 py-3"><StatusPill status={c.refundStatus} /></td>
-                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap">{dateTime(c.cancelledAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </AdminTableCard>
-
-        {refundTarget && (
-          <div
-            className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="refund-dialog-title"
-          >
-            <form
-              onSubmit={handleRefund}
-              className="w-full max-w-lg bg-white rounded-2xl border border-slate-100 p-5 space-y-4 max-h-[90vh] overflow-y-auto"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 id="refund-dialog-title" className="text-base font-semibold text-slate-900">
-                    {isID ? 'Refund pembayaran' : 'Refund payment'}
-                  </h2>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {refundTarget.paymentCode} · {refundTarget.bookingCode} · {formatCurrency(refundTarget.amount)}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setRefundTarget(null)}
-                  className="w-11 h-11 rounded-xl hover:bg-slate-100 text-slate-500 flex items-center justify-center cursor-pointer"
-                  aria-label={isID ? 'Tutup' : 'Close'}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3 leading-relaxed">
-                {isID
-                  ? 'Refund normal hanya berlaku bila booking sudah CANCELLED, EXPIRED, atau NO_SHOW. Untuk booking yang masih aktif, admin dapat memaksa refund dengan menyertakan alasan.'
-                  : 'A normal refund requires the booking to be CANCELLED, EXPIRED, or NO_SHOW. For a still-active booking an admin can force the refund by giving a reason.'}
-              </p>
-
-              <label className="block">
-                <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-                  {isID ? 'Nominal refund' : 'Refund amount'}
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  step="0.01"
-                  value={refundForm.amount}
-                  onChange={(e) => setRefundForm({ ...refundForm, amount: e.target.value })}
-                  placeholder={isID ? 'Kosongkan untuk refund penuh' : 'Leave blank to refund in full'}
-                  className="w-full min-h-11 p-2.5 rounded-xl border border-slate-200 text-[13px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-[11px] font-semibold text-slate-500 block mb-1.5">
-                  {isID ? 'Alasan' : 'Reason'}
-                </span>
-                <textarea
-                  rows={3}
-                  maxLength={500}
-                  value={refundForm.reason}
-                  onChange={(e) => setRefundForm({ ...refundForm, reason: e.target.value })}
-                  className="w-full rounded-xl border border-slate-200 p-3 text-[13px] text-slate-900 resize-y focus:outline-none focus:border-slate-900"
-                />
-              </label>
-
-              <label className="flex items-start gap-2 text-xs font-medium text-slate-700 min-h-11">
-                <input
-                  type="checkbox"
-                  checked={refundForm.force}
-                  onChange={(e) => setRefundForm({ ...refundForm, force: e.target.checked })}
-                  className="w-4 h-4 mt-0.5 rounded border-slate-300 accent-slate-900"
-                />
-                <span>
-                  {isID ? 'Paksa refund pada booking aktif (khusus admin, wajib alasan)' : 'Force the refund on an active booking (admin only, reason required)'}
-                </span>
-              </label>
-
-              {refundError && (
-                <p role="alert" className="flex items-start gap-2 text-xs text-rose-700">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
-                  <span>{refundError}</span>
-                </p>
-              )}
-
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRefundTarget(null)}
-                  className="min-h-11 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold cursor-pointer hover:bg-slate-50"
-                >
-                  {isID ? 'Batal' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={refunding}
-                  className="min-h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  {refunding ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                  {isID ? 'Proses refund' : 'Process refund'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-      </AdminPageShell>
-    </AdminAccessGuard>
+    <div aria-label={isID ? 'Ringkasan dan filter cepat' : 'Summary and quick filters'} role="group"
+      className="grid gap-px overflow-hidden rounded-[22px] border border-[#233c69] bg-[#314872] shadow-[0_12px_26px_rgba(15,31,61,0.12)] sm:grid-cols-3">
+      {metrics.map(({ key, label, tone, icon: Icon }) => {
+        const count = key ? rows?.filter(row => row.status === key).length : rows?.length;
+        return (
+          <button key={key} type="button" aria-pressed={status === key} onClick={() => onStatus(key)}
+            className="relative flex min-w-0 cursor-pointer items-center gap-3 bg-[#162850] px-3.5 py-2.5 text-left text-white transition-colors hover:bg-[#263d67] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-gold-light aria-pressed:bg-[#223a63] sm:px-5 sm:py-4 lg:px-6">
+            <span className={'grid size-9 shrink-0 place-items-center rounded-[11px] sm:size-11 ' + tone}><Icon size={18} aria-hidden /></span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 pr-1 sm:block">
+              <span className="block text-xs font-semibold leading-5 text-slate-200 sm:text-sm">{label}</span>
+              <span className="block text-lg font-semibold leading-tight tabular-nums sm:mt-0.5 sm:text-[29px]">{count?.toLocaleString(isID ? 'id-ID' : 'en-US') ?? '—'}</span>
+            </span>
+            <ArrowRight className={'size-4 shrink-0 ' + (status === key ? 'text-gold-light' : 'text-slate-300')} aria-hidden />
+            {status === key && <span className="pointer-events-none absolute inset-y-1 left-0 w-0.5 rounded-full bg-gold-light sm:inset-x-5 sm:inset-y-auto sm:bottom-0 sm:h-0.5 sm:w-auto" />}
+          </button>
+        );
+      })}
+    </div>
   );
-};
+}
+
+export function AdminPaymentsPage({ language, onOpenAuth }: { language: Language; onOpenAuth?: () => void }) {
+  const isID = language === 'ID';
+  const locale = isID ? 0 : 1;
+  const { user, isLoading: authLoading } = useAuth();
+  const allowed = user?.role === 'ADMIN';
+  const [view, setView] = useState<View>('payments');
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{ payment: PaymentResponse; mode: Mode } | null>(null);
+  const [refund, setRefund] = useState(emptyRefund);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const dialogContent = useRef<HTMLDivElement>(null);
+  const searchField = useRef<HTMLInputElement>(null);
+  const mode = dialog?.mode;
+
+  useEffect(() => {
+    if (mode && !dialogContent.current?.closest('[role="dialog"]')?.contains(document.activeElement)) {
+      dialogContent.current?.focus();
+    }
+  }, [mode]);
+
+  const read = useCallback(async () => view === 'payments'
+    ? { payments: await adminApi.listPayments(), cancellations: [] }
+    : { payments: [], cancellations: await adminApi.listCancellations() },
+  [view, user?.userId]);
+  const { data, loading, error, refresh } = useOperationsQuery(read, allowed, isID ? 'Gagal memuat transaksi.' : 'Could not load transactions.');
+
+  const changeMode = (payment: PaymentResponse, mode: Mode) => {
+    setDialog({ payment, mode });
+    setActionError(null);
+    if (mode === 'refund') setRefund(emptyRefund);
+  };
+
+  const run = async (task: () => Promise<PaymentResponse>, success: string) => {
+    if (busy || loading) return;
+    setBusy(true);
+    setNotice(null);
+    setActionError(null);
+    try {
+      await task();
+      setNotice(success);
+      setDialog(null);
+      await refresh();
+    } catch (failure) {
+      setActionError(failure instanceof ApiError ? failure.message : (isID ? 'Transaksi gagal diproses.' : 'The transaction action failed.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRefund = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!dialog) return;
+    const { payment } = dialog;
+    const amount = refund.amount.trim() ? Number(refund.amount) : undefined;
+    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0 || amount > payment.amount)) {
+      setActionError(isID ? 'Masukkan nominal lebih dari 0 dan paling banyak sebesar total pembayaran.' : 'Enter an amount above zero and no higher than the payment total.');
+      return;
+    }
+    if (refund.force && !refund.reason.trim()) {
+      setActionError(isID ? 'Alasan wajib diisi untuk refund reservasi aktif.' : 'A reason is required to refund an active reservation.');
+      return;
+    }
+    void run(
+      () => paymentApi.refund(payment.id, { amount, reason: refund.reason.trim() || undefined, force: refund.force || undefined }),
+      isID ? 'Refund berhasil diproses.' : 'Refund processed.',
+    );
+  };
+
+  if (!allowed) {
+    if (authLoading) return <OperationsEmpty loading isID={isID} empty="" />;
+    return <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>{null}</AdminAccessGuard>;
+  }
+
+  const isPayments = view === 'payments';
+  const needle = search.trim().toLowerCase();
+  const matches = (row: PaymentResponse | BookingCancellationResponse) =>
+    (!status || row.status === status) && (!needle || row.bookingCode.toLowerCase().includes(needle)
+      || ('paymentCode' in row && row.paymentCode.toLowerCase().includes(needle)));
+  const payments = data?.payments.filter(matches) ?? [];
+  const cancellations = data?.cancellations.filter(matches) ?? [];
+  const labels = isPayments ? paymentLabels : cancellationLabels;
+  const count = isPayments ? payments.length : cancellations.length;
+  const listText = !loading && !error
+    ? isID ? `${count} ${isPayments ? 'transaksi' : 'pembatalan'} ditampilkan`
+      : `${count} ${isPayments ? 'transactions' : 'cancellations'} shown`
+    : undefined;
+  const emptyText = error
+    ? (isID ? 'Daftar transaksi belum tersedia.' : 'The list is unavailable.')
+    : status || needle ? (isID ? 'Tidak ada hasil untuk pencarian atau filter ini.' : 'No results match the search or filter.')
+      : (isID ? 'Belum ada data untuk ditampilkan.' : 'There are no records to show yet.');
+  const controls = (
+    <div className="grid w-full min-w-0 gap-2 min-[540px]:grid-cols-[minmax(0,1fr)_minmax(140px,auto)] lg:w-auto lg:grid-cols-[minmax(235px,1fr)_minmax(160px,auto)]">
+      <div className="relative min-w-0">
+        <Search className="pointer-events-none absolute top-3.5 left-3 size-4 text-slate-500" aria-hidden />
+        <input ref={searchField} type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder={isID ? 'Cari kode…' : 'Search by code…'}
+          aria-label={isPayments ? (isID ? 'Cari kode pembayaran atau reservasi' : 'Find payment or booking code') : (isID ? 'Cari kode reservasi' : 'Find booking code')}
+          className={operationField + ' pl-9 ' + (search ? 'pr-11 [&::-webkit-search-cancel-button]:hidden' : '')} />
+        {search && <button type="button" onClick={() => { setSearch(''); searchField.current?.focus(); }} aria-label={isID ? 'Hapus pencarian' : 'Clear search'}
+          className="absolute inset-y-0 right-0 grid w-11 cursor-pointer place-items-center rounded-xl text-slate-600 hover:text-navy-dark"><X size={15} aria-hidden /></button>}
+      </div>
+      <select aria-label={isID ? 'Filter status' : 'Filter by status'} value={status} onChange={event => setStatus(event.target.value)}
+        className={operationField + ' cursor-pointer bg-white'}>
+        <option value="">{isID ? 'Semua status' : 'All statuses'}</option>
+        {Object.entries(labels).map(([value, pair]) => <option key={value} value={value}>{pair[locale]}</option>)}
+      </select>
+    </div>
+  );
+  const selected = dialog?.payment;
+  const expire = mode === 'expire';
+
+  return (
+    <div className="operations-page mx-auto max-w-[1280px] space-y-4 pb-14 text-slate-800 sm:space-y-5">
+      <header className="flex items-start justify-between gap-3 py-1 sm:items-center sm:gap-5 sm:py-2">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-[13px] border border-[#dfcfaa] bg-[#fcf5e6] text-[#805819] sm:size-14 sm:rounded-[17px]"><CreditCard className="size-5 sm:size-6" aria-hidden /></span>
+          <div className="min-w-0">
+            <h1 className="font-serif text-[clamp(1.75rem,4vw,2.7rem)] leading-tight tracking-tight text-navy-dark">{isID ? 'Pembayaran' : 'Payments'}</h1>
+            <p className="mt-0.5 text-xs leading-5 text-slate-600 sm:text-sm">{isID ? 'Transaksi, pembatalan, dan pengembalian dana.' : 'Transactions, cancellations, and refunds.'}</p>
+          </div>
+        </div>
+        <button type="button" disabled={loading || busy} aria-busy={loading} aria-label={isID ? 'Muat ulang' : 'Refresh'}
+          onClick={() => void refresh()} className={operationSecondary + ' size-11 shrink-0 sm:size-auto'}>
+          <RotateCw className={`size-4 shrink-0 ${loading ? 'motion-safe:animate-spin' : ''}`} aria-hidden />
+          <span className="hidden sm:inline">{isID ? 'Muat ulang' : 'Refresh'}</span>
+        </button>
+      </header>
+      <div className="flex min-w-0 items-center gap-4 border-b border-slate-200 sm:gap-6" role="group" aria-label={isID ? 'Jenis data transaksi' : 'Transaction record type'}>
+        {([
+          { value: 'payments', icon: ReceiptText, label: isID ? 'Transaksi' : 'Transactions' },
+          { value: 'cancellations', icon: Undo2, label: isID ? 'Pembatalan' : 'Cancellations' },
+        ] as const).map(({ value, icon: Icon, label }) => (
+          <button key={value} type="button" aria-pressed={view === value} disabled={busy}
+            onClick={() => { if (view !== value) { setView(value); setStatus(''); setSearch(''); setNotice(null); } }}
+            className="relative -mb-px flex min-h-11 cursor-pointer items-center gap-2 border-b-2 border-transparent px-1 pb-1 text-sm font-semibold text-slate-600 transition-colors hover:text-navy-dark aria-pressed:border-[#a37120] aria-pressed:text-navy-dark sm:px-2">
+            <Icon className="size-4" aria-hidden />{label}
+          </button>
+        ))}
+      </div>
+      <PaymentOverview rows={isPayments ? data?.payments : data?.cancellations} view={view} status={status} isID={isID} onStatus={setStatus} />
+
+      {error && <OperationsNotice>{error}</OperationsNotice>}
+      {notice && <OperationsNotice success>{notice}</OperationsNotice>}
+
+      {isPayments ? (
+        <OperationsList isID={isID} title={isID ? 'Daftar pembayaran' : 'Payment list'} description={listText} rows={payments} loading={loading} empty={emptyText} controls={controls}
+          primary={{ label: isID ? 'Pembayaran / reservasi' : 'Payment / reservation', render: payment => <>
+            <p className="[overflow-wrap:anywhere] font-mono text-xs font-bold text-navy-dark">{payment.paymentCode}</p>
+            <p className="mt-1 [overflow-wrap:anywhere] text-xs text-slate-600">{payment.bookingCode}</p>
+          </> }}
+          columns={[
+            { label: isID ? 'Nominal' : 'Amount', render: payment => <span className="font-bold text-navy-dark tabular-nums">{paymentAmount(payment, language)}</span> },
+            { label: isID ? 'Metode' : 'Method', render: payment => <>
+              <span className="capitalize">{paymentMethod(payment)}</span>
+              {payment.gateway && <p className="mt-0.5 text-xs capitalize text-slate-600">{payment.gateway.toLowerCase()}</p>}
+            </> },
+            { label: isID ? 'Dibuat' : 'Created at', render: payment => operationDate(payment.createdAt, language) },
+          ]}
+          status={payment => <StatusPill status={payment.status} label={paymentLabels[payment.status]?.[locale]} />}
+          actions={payment => (
+            <button type="button" disabled={loading || busy} onClick={() => changeMode(payment, 'details')}
+              aria-label={`${isID ? 'Detail pembayaran' : 'Payment details'} ${payment.paymentCode}`} className={operationSecondary + ' w-full sm:w-auto'}>
+              {isID ? 'Lihat detail' : 'View details'}<ArrowRight className="size-4" aria-hidden />
+            </button>
+          )}
+        />
+      ) : (
+        <OperationsList isID={isID} title={isID ? 'Daftar pembatalan' : 'Cancellation list'} description={listText} rows={cancellations} loading={loading} empty={emptyText} controls={controls}
+          primary={{ label: isID ? 'Reservasi' : 'Reservation', render: row => <>
+            <p className="[overflow-wrap:anywhere] font-mono text-xs font-bold text-navy-dark">{row.bookingCode}</p>
+            <p className="mt-1 text-xs text-slate-600">{operationDate(row.cancelledAt, language)}</p>
+          </> }}
+          columns={[
+            { label: isID ? 'Dibatalkan oleh' : 'Cancelled by', render: row => row.cancelledByRole || '—' },
+            { label: isID ? 'Alasan' : 'Reason', render: row => <span className="block max-w-60 break-words">{row.cancellationReason || '—'}</span> },
+            { label: isID ? 'Biaya' : 'Fee', render: row => row.cancellationFeeAmount == null ? '—' : formatCurrency(row.cancellationFeeAmount) },
+            { label: 'Refund', render: row => row.refundAmount == null ? '—' : <span className="font-semibold text-navy-dark tabular-nums">{formatCurrency(row.refundAmount)}</span> },
+            { label: isID ? 'Status refund' : 'Refund status', render: row => <StatusPill status={row.refundStatus} label={refundLabels[row.refundStatus]?.[locale]} /> },
+          ]}
+          status={row => <StatusPill status={row.status} label={cancellationLabels[row.status]?.[locale]} />}
+        />
+      )}
+
+      {selected && (
+        <OperationsDialog title={mode === 'refund' ? (isID ? 'Kembalikan dana' : 'Refund payment') : (isID ? 'Detail pembayaran' : 'Payment details')}
+          description={selected.paymentCode} isID={isID} busy={busy} onClose={() => setDialog(null)}>
+          <div ref={dialogContent} tabIndex={-1} className="space-y-4 outline-none">
+            <div className="flex flex-wrap items-start justify-between gap-2 rounded-[15px] border border-[#ded3b8] bg-[#fcf8ee] p-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-600">{isID ? 'Total pembayaran' : 'Payment total'}</p>
+                <p className="mt-1 text-2xl font-bold text-navy-dark tabular-nums">{paymentAmount(selected, language)}</p>
+              </div>
+              <StatusPill status={selected.status} label={paymentLabels[selected.status]?.[locale]} />
+            </div>
+
+            {mode === 'details' && <>
+              <dl className="grid grid-cols-2 gap-3 rounded-[15px] border border-slate-200 bg-slate-50 p-4 text-sm">
+                {[
+                  [isID ? 'Kode reservasi' : 'Booking code', selected.bookingCode],
+                  [isID ? 'Metode' : 'Method', paymentMethod(selected)],
+                  ['Gateway', selected.gateway || '—'],
+                  [isID ? 'Dibuat' : 'Created at', operationDate(selected.createdAt, language)],
+                  [isID ? 'Dibayar' : 'Paid at', selected.paidAt && operationDate(selected.paidAt, language)],
+                  [isID ? 'Kedaluwarsa' : 'Expired at', selected.expiredAt && operationDate(selected.expiredAt, language)],
+                  [isID ? 'Dibatalkan' : 'Cancelled at', selected.cancelledAt && operationDate(selected.cancelledAt, language)],
+                  [isID ? 'Dana dikembalikan' : 'Refunded at', selected.refundedAt && operationDate(selected.refundedAt, language)],
+                ].map(([label, value]) => value && <div key={label} className="min-w-0">
+                  <dt className="text-xs text-slate-600">{label}</dt><dd className="mt-1 [overflow-wrap:anywhere] font-semibold text-navy-dark">{value}</dd>
+                </div>)}
+              </dl>
+              {selected.failureReason && <OperationsNotice>{selected.failureReason}</OperationsNotice>}
+              {(selected.status === 'PENDING' || selected.status === 'PAID') && (
+                <div className="flex flex-wrap justify-end gap-2">
+                  {selected.status === 'PAID' ? <button type="button" onClick={() => changeMode(selected, 'refund')} className={operationPrimary}>
+                    <Undo2 size={16} aria-hidden />{isID ? 'Kembalikan dana' : 'Refund'}
+                  </button> : <>
+                    <button type="button" onClick={() => changeMode(selected, 'expire')} className={operationSecondary}><CalendarClock size={16} aria-hidden />{isID ? 'Kedaluwarsakan' : 'Expire'}</button>
+                    <button type="button" onClick={() => changeMode(selected, 'cancel')} className={operationDanger}><Ban size={16} aria-hidden />{isID ? 'Batalkan pembayaran' : 'Cancel payment'}</button>
+                  </>}
+                </div>
+              )}
+            </>}
+
+            {(mode === 'expire' || mode === 'cancel') && <>
+              <p className="text-sm leading-6 text-slate-700">
+                {expire ? (isID ? 'Tandai pembayaran ini sebagai kedaluwarsa?' : 'Mark this payment as expired?')
+                  : (isID ? 'Batalkan pembayaran ini?' : 'Cancel this payment?')}
+              </p>
+              {actionError && <OperationsNotice>{actionError}</OperationsNotice>}
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" disabled={busy} onClick={() => changeMode(selected, 'details')} className={operationSecondary}>{isID ? 'Kembali' : 'Back'}</button>
+                <button type="button" disabled={busy} className={expire ? operationPrimary : operationDanger} onClick={() => void run(
+                  () => expire ? adminApi.expirePayment(selected.id) : paymentApi.cancel(selected.id),
+                  expire ? (isID ? 'Pembayaran ditandai kedaluwarsa.' : 'Payment expired.') : (isID ? 'Pembayaran dibatalkan.' : 'Payment cancelled.'),
+                )}>
+                  {busy && <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />}
+                  {expire ? (isID ? 'Kedaluwarsakan' : 'Expire') : (isID ? 'Batalkan pembayaran' : 'Cancel payment')}
+                </button>
+              </div>
+            </>}
+
+            {mode === 'refund' && (
+              <form onSubmit={handleRefund} className="space-y-4">
+                <fieldset disabled={busy} className="space-y-3">
+                  <label className="block text-sm font-semibold">{isID ? 'Nominal refund' : 'Refund amount'}
+                    <input type="number" min="0.01" step="0.01" max={selected.amount} value={refund.amount} onChange={event => setRefund({ ...refund, amount: event.target.value })}
+                      placeholder={isID ? 'Kosong untuk refund penuh' : 'Blank for a full refund'} className={operationField + ' mt-1 font-normal'} />
+                  </label>
+                  <label className="block text-sm font-semibold">{isID ? 'Alasan' : 'Reason'}
+                    <textarea maxLength={500} rows={3} required={refund.force} value={refund.reason} onChange={event => setRefund({ ...refund, reason: event.target.value })}
+                      className={operationField + ' mt-1 resize-y'} />
+                  </label>
+                  <label className="flex min-h-11 items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <input type="checkbox" checked={refund.force} onChange={event => setRefund({ ...refund, force: event.target.checked })} className="mt-0.5 size-4 shrink-0 accent-navy" />
+                    <span>
+                      <span className="block font-semibold">{isID ? 'Refund untuk reservasi aktif' : 'Refund an active reservation'}</span>
+                      <span className="mt-0.5 block text-xs leading-5">{isID ? 'Alasan wajib diisi untuk refund reservasi aktif.' : 'A reason is required to refund an active reservation.'}</span>
+                    </span>
+                  </label>
+                </fieldset>
+                {actionError && <OperationsNotice>{actionError}</OperationsNotice>}
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button type="button" disabled={busy} onClick={() => changeMode(selected, 'details')} className={operationSecondary}>{isID ? 'Kembali' : 'Back'}</button>
+                  <button type="submit" disabled={busy} className={operationPrimary}>{busy ? <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden /> : <Undo2 size={16} aria-hidden />}{isID ? 'Proses refund' : 'Process refund'}</button>
+                </div>
+              </form>
+            )}
+          </div>
+        </OperationsDialog>
+      )}
+    </div>
+  );
+}

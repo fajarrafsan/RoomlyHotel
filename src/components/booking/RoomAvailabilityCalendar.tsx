@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { roomApi } from '../../api/rooms';
 import { RoomAvailabilityResponse } from '../../types/api';
 import { toISODate, startOfDay, addDays, getMonthGrid } from '../../lib/calendar';
@@ -15,6 +15,7 @@ interface RoomAvailabilityCalendarProps {
 
 const BLOCKED_STATUSES = new Set(['SOLD_OUT', 'MAINTENANCE', 'CLOSED']);
 const FETCH_WINDOW_DAYS = 90;
+const navButton = 'absolute top-0 z-10 grid size-10 cursor-pointer place-items-center rounded-xl border border-slate-200 bg-white text-navy-dark hover:bg-navy-soft motion-safe:transition-colors disabled:cursor-not-allowed disabled:bg-white disabled:text-slate-400 sm:size-11';
 
 export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> = ({
   isID,
@@ -25,10 +26,13 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
   onCheckOutChange
 }) => {
   const today = useMemo(() => startOfDay(new Date()), []);
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [viewDate, setViewDate] = useState(() => checkIn ? new Date(checkIn + 'T00:00:00') : today);
+  const viewYear = viewDate.getFullYear();
+  const viewMonth = viewDate.getMonth();
+  const lastDay = useMemo(() => addDays(today, FETCH_WINDOW_DAYS), [today]);
   const [availability, setAvailability] = useState<Map<string, RoomAvailabilityResponse>>(new Map());
   const [loading, setLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [rangeWarning, setRangeWarning] = useState<string | null>(null);
   const [hoverDate, setHoverDate] = useState<string | null>(null);
@@ -37,8 +41,9 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setAvailability(new Map());
     const from = toISODate(today);
-    const to = toISODate(addDays(today, FETCH_WINDOW_DAYS));
+    const to = toISODate(lastDay);
     roomApi
       .availability(Number(roomId), from, to)
       .then((rows) => {
@@ -56,7 +61,7 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [roomId, today, isID]);
+  }, [roomId, today, lastDay, isID, retryCount]);
 
   // A date with no availability row at all is treated the same as blocked —
   // we genuinely don't know if it's bookable, so it must not be selectable,
@@ -92,7 +97,7 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
     setRangeWarning(null);
 
     const iso = toISODate(date);
-    const currentCheckIn = checkIn ? startOfDay(new Date(checkIn)) : null;
+    const currentCheckIn = checkIn ? new Date(checkIn + 'T00:00:00') : null;
 
     if (!currentCheckIn || checkOut || date <= currentCheckIn) {
       // Start a new selection.
@@ -114,144 +119,128 @@ export const RoomAvailabilityCalendar: React.FC<RoomAvailabilityCalendarProps> =
   };
 
   const canGoPrev = viewYear > today.getFullYear() || (viewYear === today.getFullYear() && viewMonth > today.getMonth());
-  const goPrevMonth = () => {
-    if (!canGoPrev) return;
-    const d = new Date(viewYear, viewMonth - 1, 1);
-    setViewYear(d.getFullYear());
-    setViewMonth(d.getMonth());
-  };
-  const goNextMonth = () => {
-    const d = new Date(viewYear, viewMonth + 1, 1);
-    setViewYear(d.getFullYear());
-    setViewMonth(d.getMonth());
-  };
+  const nextMonth = new Date(viewYear, viewMonth + 1, 1);
+  const canGoNext = nextMonth <= lastDay;
+  const goPrevMonth = () => setViewDate(new Date(viewYear, viewMonth - 1, 1));
+  const goNextMonth = () => setViewDate(nextMonth);
 
-  const cells = getMonthGrid(viewYear, viewMonth);
-  const monthLabel = new Intl.DateTimeFormat(isID ? 'id-ID' : 'en-US', { month: 'long', year: 'numeric' }).format(new Date(viewYear, viewMonth, 1));
+  const locale = isID ? 'id-ID' : 'en-US';
   const weekdayLabels = isID
     ? ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
     : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const statusLabels = {
+    past: isID ? 'sudah lewat' : 'in the past',
+    'no-data': isID ? 'belum ada data ketersediaan' : 'no availability data',
+    blocked: isID ? 'penuh atau tutup' : 'sold out or closed',
+    limited: isID ? 'tersedia terbatas' : 'limited availability',
+    open: isID ? 'tersedia' : 'available',
+  };
   const todayIso = toISODate(today);
+  const checkInDate = checkIn ? new Date(checkIn + 'T00:00:00') : null;
+  const checkOutDate = checkOut ? new Date(checkOut + 'T00:00:00') : null;
+  const previewEnd = checkOutDate || (hoverDate ? new Date(hoverDate + 'T00:00:00') : null);
 
-  const checkInDate = checkIn ? startOfDay(new Date(checkIn)) : null;
-  const checkOutDate = checkOut ? startOfDay(new Date(checkOut)) : null;
-  const previewEnd = checkOutDate || (hoverDate ? startOfDay(new Date(hoverDate)) : null);
-
-  return (
-    <div className="rounded-2xl border border-navy-soft bg-white overflow-hidden">
-      <div className="px-4 py-3 bg-navy-soft/50 border-b border-navy-soft flex items-center justify-between">
-        <button
-          type="button"
-          onClick={goPrevMonth}
-          disabled={!canGoPrev}
-          aria-label={isID ? 'Bulan sebelumnya' : 'Previous month'}
-          className="min-w-11 min-h-11 rounded-xl text-navy hover:bg-white/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors duration-200 cursor-pointer flex items-center justify-center"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-        <span className="font-serif text-[15px] text-navy capitalize">{monthLabel}</span>
-        <button
-          type="button"
-          onClick={goNextMonth}
-          aria-label={isID ? 'Bulan berikutnya' : 'Next month'}
-          className="min-w-11 min-h-11 rounded-xl text-navy hover:bg-white/70 transition-colors duration-200 cursor-pointer flex items-center justify-center"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-7 gap-1 px-3 pt-3 pb-1">
+  const renderMonth = (year: number, month: number) => (
+    <div className="min-w-0">
+      <p className="flex h-10 items-center justify-center text-center text-sm font-bold capitalize text-navy-dark sm:h-11 sm:text-base" aria-live="polite">
+        {new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(year, month, 1))}
+      </p>
+      <div className="mt-1 grid grid-cols-7">
         {weekdayLabels.map((w) => (
-          <div key={w} className="text-center text-[10px] font-bold uppercase tracking-wider text-slate-400 py-1">{w}</div>
+          <div key={w} className="py-1.5 text-center text-xs font-semibold text-slate-500">{w}</div>
         ))}
       </div>
-
-      <div className="grid grid-cols-7 gap-1 p-3 pt-0 relative">
-        {loading && (
-          <div className="absolute inset-0 bg-white/90 flex items-center justify-center z-10 rounded-b-2xl">
-            <Loader2 className="w-5 h-5 text-navy animate-spin" aria-hidden />
-          </div>
-        )}
-
-        {cells.map((date, idx) => {
+      <div className="grid grid-cols-7 gap-y-0.5 sm:gap-y-1">
+        {getMonthGrid(year, month).map((date, idx) => {
           if (!date) return <div key={`empty-${idx}`} />;
           const status = dayStatus(date);
           const iso = toISODate(date);
           const isToday = iso === todayIso;
-          const isCheckIn = checkInDate && toISODate(checkInDate) === iso;
-          const isCheckOut = checkOutDate && toISODate(checkOutDate) === iso;
-          const isSelected = Boolean(isCheckIn || isCheckOut);
-          const inRange = checkInDate && previewEnd && date > checkInDate && date < previewEnd;
+          const isCheckIn = Boolean(checkInDate && toISODate(checkInDate) === iso);
+          const isCheckOut = Boolean(checkOutDate && toISODate(checkOutDate) === iso);
+          const isSelected = isCheckIn || isCheckOut;
+          const inRange = Boolean(checkInDate && previewEnd && date > checkInDate && date < previewEnd);
+          const rangeStarts = isCheckIn && Boolean(previewEnd && checkInDate && previewEnd > checkInDate);
           const entry = availability.get(iso);
           const disabled = !isSelectable(date);
 
-          let cellClasses: string;
-          let indicator: 'label-in' | 'label-out' | 'dot-open' | 'dot-limited' | null = null;
+          const band = inRange
+            ? 'bg-navy-soft'
+            : rangeStarts
+              ? 'bg-gradient-to-r from-transparent from-50% to-navy-soft to-50%'
+              : isCheckOut
+                ? 'bg-gradient-to-l from-transparent from-50% to-navy-soft to-50%'
+                : '';
 
-          if (isSelected) {
-            cellClasses = 'bg-navy text-white cursor-pointer';
-            indicator = isCheckIn ? 'label-in' : 'label-out';
-          } else if (status === 'past') {
-            cellClasses = 'text-slate-300 cursor-not-allowed';
-          } else if (status === 'no-data') {
-            cellClasses = 'text-slate-300 cursor-not-allowed border border-dashed border-navy-soft';
-          } else if (status === 'blocked') {
-            cellClasses = 'text-rose-400 line-through cursor-not-allowed bg-rose-50/70';
-          } else if (status === 'limited') {
-            cellClasses = inRange
-              ? 'bg-navy-soft text-navy cursor-pointer'
-              : 'bg-gold-soft hover:bg-gold-light/40 text-gold-dark cursor-pointer transition-colors duration-200';
-            indicator = inRange ? null : 'dot-limited';
-          } else {
-            cellClasses = inRange
-              ? 'bg-navy-soft text-navy cursor-pointer'
-              : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 cursor-pointer transition-colors duration-200';
-            indicator = inRange ? null : 'dot-open';
-          }
+          const tone = isSelected
+            ? 'cursor-pointer bg-navy-dark text-white'
+            : status === 'past' || status === 'no-data'
+              ? 'cursor-not-allowed text-slate-400'
+              : status === 'blocked'
+                ? 'cursor-not-allowed text-slate-400 line-through'
+              : 'cursor-pointer text-navy-dark hover:bg-navy-soft';
 
           return (
-            <button
-              key={iso}
-              type="button"
-              disabled={disabled}
-              onClick={() => handleDayClick(date)}
-              onMouseEnter={() => setHoverDate(iso)}
-              title={entry ? `${entry.availableInventory}/${entry.totalInventory} ${isID ? 'kamar tersisa' : 'rooms left'}` : (status === 'no-data' ? (isID ? 'Belum ada data ketersediaan' : 'No availability data') : undefined)}
-              className={`relative min-h-11 aspect-square rounded-xl text-xs font-semibold flex flex-col items-center justify-center gap-px transition-colors duration-200 ${isToday && !isSelected ? 'ring-1 ring-inset ring-gold' : ''} ${cellClasses}`}
-            >
-              <span className={isToday && !isSelected ? 'underline decoration-gold underline-offset-2' : ''}>
+            <div key={iso} className={`flex items-center justify-center ${band}`}>
+              <button
+                type="button"
+                disabled={loading || disabled}
+                onClick={() => handleDayClick(date)}
+                onMouseEnter={() => setHoverDate(disabled ? null : iso)}
+                aria-label={`${new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(date)}, ${statusLabels[status]}`}
+                aria-pressed={isSelected}
+                title={entry ? `${entry.availableInventory}/${entry.totalInventory} ${isID ? 'kamar tersisa' : 'rooms left'}` : (status === 'no-data' ? statusLabels['no-data'] : undefined)}
+                className={`relative flex h-[34px] w-full max-w-11 items-center justify-center rounded-[10px] text-sm font-semibold tabular-nums motion-safe:transition-colors sm:h-10 ${isToday && !isSelected ? 'ring-1 ring-inset ring-gold' : ''} ${tone}`}
+              >
                 {date.getDate()}
-              </span>
-              {indicator === 'label-in' && <span className="text-[7px] font-bold uppercase tracking-widest opacity-80">{isID ? 'Masuk' : 'In'}</span>}
-              {indicator === 'label-out' && <span className="text-[7px] font-bold uppercase tracking-widest opacity-80">{isID ? 'Keluar' : 'Out'}</span>}
-              {(indicator === 'dot-open' || indicator === 'dot-limited') && (
-                <span className={`w-1 h-1 rounded-full ${indicator === 'dot-open' ? 'bg-emerald-500' : 'bg-gold'}`} />
-              )}
-            </button>
+                {status === 'limited' && !isSelected && <span className="absolute bottom-1 size-1 rounded-full bg-gold" aria-hidden />}
+              </button>
+            </div>
           );
         })}
       </div>
+    </div>
+  );
 
-      <div className="px-4 py-3 border-t border-navy-soft bg-navy-soft/40">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10px] font-medium text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" />{isID ? 'Tersedia' : 'Available'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gold" />{isID ? 'Terbatas' : 'Limited'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-400" />{isID ? 'Penuh / Tutup' : 'Sold out'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-300" />{isID ? 'Belum ada data' : 'No data'}</span>
-          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gold ring-2 ring-gold/30" />{isID ? 'Hari ini' : 'Today'}</span>
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-2.5 sm:p-4" data-checkout-calendar>
+      <div className="relative" onMouseLeave={() => setHoverDate(null)}>
+        <button type="button" onClick={goPrevMonth} disabled={!canGoPrev} aria-label={isID ? 'Bulan sebelumnya' : 'Previous month'} className={`${navButton} left-0`}>
+          <ChevronLeft className="size-4" aria-hidden />
+        </button>
+        <button type="button" onClick={goNextMonth} disabled={!canGoNext} aria-label={isID ? 'Bulan berikutnya' : 'Next month'} className={`${navButton} right-0`}>
+          <ChevronRight className="size-4" aria-hidden />
+        </button>
+
+        <div className={canGoNext ? 'grid xl:grid-cols-2 xl:gap-6' : 'mx-auto xl:max-w-[420px]'}>
+          {renderMonth(viewYear, viewMonth)}
+          {canGoNext && <div className="hidden min-w-0 border-l border-slate-100 pl-6 xl:block">{renderMonth(nextMonth.getFullYear(), nextMonth.getMonth())}</div>}
         </div>
+
+        {loading && (
+          <div className="absolute inset-x-0 bottom-0 top-11 z-10 flex items-center justify-center bg-white/85" role="status">
+            <Loader2 className="size-5 text-navy motion-safe:animate-spin" aria-hidden />
+            <span className="sr-only">{isID ? 'Memuat ketersediaan kamar' : 'Loading room availability'}</span>
+          </div>
+        )}
       </div>
 
-      {error && (
-        <div className="mx-4 mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-          {error}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-slate-100 pt-2 text-xs leading-5 text-slate-600 sm:mt-3 sm:gap-x-4">
+        <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-gold" aria-hidden />{isID ? 'Terbatas' : 'Limited'}</span>
+        <span className="flex items-center gap-1.5"><span className="font-medium text-slate-400 line-through" aria-hidden>12</span>{isID ? 'Penuh / tutup' : 'Sold out'}</span>
+        <span className="flex items-center gap-1.5"><span className="size-3.5 rounded-full ring-1 ring-inset ring-gold" aria-hidden />{isID ? 'Hari ini' : 'Today'}</span>
+      </div>
 
-      {rangeWarning && (
-        <div className="mx-4 mb-3 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-semibold flex items-center gap-2">
-          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+      {error ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-100 bg-rose-50 p-2.5 text-sm text-rose-800">
+          <p className="flex items-center gap-2" role="alert"><AlertCircle className="size-4 shrink-0" aria-hidden />{error}</p>
+          <button type="button" onClick={() => setRetryCount(count => count + 1)} className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2 font-bold hover:bg-rose-100">
+            <RefreshCw className="size-4" aria-hidden />{isID ? 'Coba lagi' : 'Try again'}
+          </button>
+        </div>
+      ) : rangeWarning && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50 p-3 text-[13px] font-medium leading-5 text-rose-700" role="alert">
+          <AlertCircle className="mt-px size-4 shrink-0" aria-hidden />
           {rangeWarning}
         </div>
       )}

@@ -39,6 +39,18 @@ export const EVENT_TYPE_LABELS: Record<NotificationEventType, { id: string; en: 
   REVIEW_DELETED: { id: 'Ulasan Dihapus', en: 'Review Deleted' },
 };
 
+export const notificationEventTypes = Object.keys(EVENT_TYPE_LABELS) as NotificationEventType[];
+
+export function notificationEventLabel(type: string, isID: boolean) {
+  return EVENT_TYPE_LABELS[type as NotificationEventType]?.[isID ? 'id' : 'en'] ?? type.replace(/_/g, ' ');
+}
+
+export function notificationChannelLabel(channel: string, isID: boolean) {
+  if (channel === 'IN_APP') return isID ? 'Dalam aplikasi' : 'In-app';
+  if (channel === 'EMAIL') return 'Email';
+  return channel;
+}
+
 export interface NotificationEventGroup {
   title: { id: string; en: string };
   events: NotificationEventType[];

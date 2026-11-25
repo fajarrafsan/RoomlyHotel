@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Loader2, SearchX } from 'lucide-react';
+import { ArrowLeft, SearchX } from 'lucide-react';
 import { Booking, Hotel, Language, RoomType } from '../types';
 import { calculateNights } from '../lib/utils';
 import { bookingApi } from '../api/bookings';
@@ -10,13 +10,19 @@ import { roomApi } from '../api/rooms';
 import { mapBookingToUI, mapHotelToUI, mapRoomToUI } from '../lib/adapters';
 import { useAuth } from '../context/AuthContext';
 import { ApiError } from '../lib/http';
-import { BookingResponse } from '../types/api/booking';
+import { BookingQuoteResponse, BookingResponse } from '../types/api/booking';
+import { bookingHoldTime } from '../lib/bookingPresentation';
 import { CreatePaymentResponse, PaymentResponse } from '../types/api/payment';
 import { BookingWizardHeader } from '../components/booking/BookingWizardHeader';
 import { BookingFooter } from '../components/booking/BookingFooter';
+import { BookingSummary } from '../components/booking/BookingSummary';
+import { BookingCheckoutSkeleton } from '../components/booking/BookingCheckoutSkeleton';
+import { CheckoutLeaveDialog } from '../components/booking/CheckoutLeaveDialog';
+import { useCheckoutLeaveGuard } from '../components/booking/useCheckoutLeaveGuard';
 import {
   PaymentDisplayStatus, PaymentStatusScreen,
 } from '../components/booking/PaymentStatusScreen';
+import { CheckoutPaymentResult } from '../components/booking/PaymentResultDialog';
 import { DatesGuestsStep } from '../components/booking/steps/DatesGuestsStep';
 import { GuestDetailsStep } from '../components/booking/steps/GuestDetailsStep';
 import { ReviewPayStep } from '../components/booking/steps/ReviewPayStep';
@@ -40,6 +46,12 @@ const PENDING_PAYMENT_STORAGE_VERSION = 1;
 const PAYABLE_BOOKING_STATUSES = new Set(['PENDING', 'WAITING_PAYMENT', 'CONFIRMED']);
 const PAYABLE_BOOKING_PAYMENT_STATUSES = new Set(['UNPAID', 'PENDING', 'FAILED']);
 
+const normalizeGuestPhone = (value: string): string | null => {
+  const trimmed = value.trim();
+  const phone = trimmed.replace(/\s/g, '');
+  return trimmed.startsWith('+62') && /^\+62[1-9]\d{7,12}$/.test(phone) ? phone : null;
+};
+
 interface PendingPayment {
   booking: BookingResponse;
   paymentId: number | null;
@@ -58,7 +70,8 @@ const pendingPaymentStorageKey = (userId: number, hotelId: string, roomId: strin
 
 const bookingCanAcceptPayment = (booking: BookingResponse) =>
   PAYABLE_BOOKING_STATUSES.has(booking.status)
-  && PAYABLE_BOOKING_PAYMENT_STATUSES.has(booking.paymentStatus);
+  && PAYABLE_BOOKING_PAYMENT_STATUSES.has(booking.paymentStatus)
+  && (!booking.holdExpiresAt || bookingHoldTime(booking.holdExpiresAt) > Date.now());
 
 const isPersistedPendingPayment = (value: unknown): value is PersistedPendingPayment => {
   if (!value || typeof value !== 'object') return false;
@@ -89,6 +102,19 @@ const fromExistingPayment = (
   redirectUrl: payment.redirectUrl,
 });
 
+// A blank same-origin tab we can still navigate after the slow part finishes.
+// `noopener` would make window.open return null, so the opener link is cut by
+// hand before the tab ever leaves for Midtrans.
+const openPaymentPlaceholder = (isID: boolean): Window | null => {
+  const tab = window.open('', '_blank');
+  if (!tab) return null;
+  tab.opener = null;
+  tab.document.title = 'Roomly';
+  tab.document.body.style.fontFamily = 'system-ui, sans-serif';
+  tab.document.body.textContent = isID ? 'Menyiapkan halaman pembayaran…' : 'Preparing the payment page…';
+  return tab;
+};
+
 export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
   hotels,
   onCompleteBooking,
@@ -98,6 +124,7 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
   const isID = language === 'ID';
   const { user, isLoading: isAuthLoading } = useAuth();
   const navigate = useNavigate();
+  const wizardRef = useRef<HTMLDivElement>(null);
   const { hotelId, roomId } = useParams<{ hotelId: string; roomId: string }>();
   const [searchParams] = useSearchParams();
   const resumeBookingId = Number(searchParams.get('resumeBookingId'));
@@ -106,9 +133,12 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
   const catalogRoom = catalogHotel?.rooms.find((r) => r.id === roomId);
   const [resolvedHotel, setResolvedHotel] = useState<Hotel | null>(null);
   const [resolvedRoom, setResolvedRoom] = useState<RoomType | null>(null);
+  const [roomPhoto, setRoomPhoto] = useState<{ id: string; url: string } | null>(null);
   const [isResolvingStay, setIsResolvingStay] = useState(true);
   const hotel = resolvedHotel;
   const selectedRoom = resolvedRoom;
+  const resolvedRoomId = selectedRoom?.id;
+  const catalogPhoto = selectedRoom?.images?.[0];
   const storageKey = user && hotelId && roomId
     ? pendingPaymentStorageKey(user.userId, hotelId, roomId)
     : null;
@@ -119,10 +149,18 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
   const [checkOut, setCheckOut] = useState('');
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
+  const [quoteResult, setQuoteResult] = useState<{ key: string; quote: BookingQuoteResponse | null }>();
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
+  const quoteKey = resolvedRoomId && resolvedRoomId === roomId && checkIn && checkOut
+    ? `${resolvedRoomId}:${checkIn}:${checkOut}:${quoteAttempt}`
+    : null;
+  const currentQuote = quoteKey && quoteResult?.key === quoteKey ? quoteResult.quote : undefined;
+  const retryQuote = () => setQuoteAttempt(attempt => attempt + 1);
 
   const [guestName, setGuestName] = useState(user?.fullName || '');
   const [guestEmail, setGuestEmail] = useState(user?.email || '');
   const [guestPhone, setGuestPhone] = useState('');
+  const [showGuestPhoneError, setShowGuestPhoneError] = useState(false);
   const [specialRequests, setSpecialRequests] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -172,10 +210,9 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
 
     const resolve = async () => {
       try {
-        const [hotelRes, roomRes, images] = await Promise.all([
+        const [hotelRes, roomRes] = await Promise.all([
           hotelApi.getById(hotelNum),
           roomApi.getById(roomNum),
-          roomApi.images(roomNum).catch(() => []),
         ]);
         if (cancelled) return;
         if (roomRes.hotelId !== hotelNum) {
@@ -184,7 +221,7 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
           return;
         }
         const mappedHotel = mapHotelToUI(hotelRes, { pricePerNight: roomRes.basePrice });
-        const mappedRoom = mapRoomToUI(roomRes, images);
+        const mappedRoom = mapRoomToUI(roomRes);
         setResolvedHotel(mappedHotel);
         setResolvedRoom(mappedRoom);
       } catch (err) {
@@ -202,6 +239,30 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
     return () => { cancelled = true; };
   }, [catalogHotel, catalogRoom, hotelId, roomId]);
 
+  useEffect(() => {
+    if (!resolvedRoomId || resolvedRoomId !== roomId || catalogPhoto) return;
+    let active = true;
+    void roomApi.images(Number(resolvedRoomId)).then(images => {
+      const photo = images.filter(image => image.imageUrl).sort((a, b) =>
+        Number(b.isPrimary) - Number(a.isPrimary) || (a.displayOrder ?? 0) - (b.displayOrder ?? 0))[0];
+      if (active && photo) setRoomPhoto({ id: resolvedRoomId, url: photo.imageUrl });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [catalogPhoto, resolvedRoomId, roomId]);
+
+  useEffect(() => {
+    if (!quoteKey) return;
+    const controller = new AbortController();
+    void bookingApi.quote({ roomId: Number(resolvedRoomId), checkInDate: checkIn, checkOutDate: checkOut }, controller.signal)
+      .then(quote => {
+        if (!controller.signal.aborted) setQuoteResult({ key: quoteKey, quote });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setQuoteResult({ key: quoteKey, quote: null });
+      });
+    return () => controller.abort();
+  }, [quoteKey, resolvedRoomId, checkIn, checkOut]);
+
   const adoptExistingPayment = useCallback((booking: BookingResponse, payment: PaymentResponse) => {
     setPendingPayment(fromExistingPayment(booking, payment));
     setPaymentStatus(payment.status);
@@ -210,29 +271,44 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
     pollCountRef.current = 0;
   }, []);
 
-  const createPaymentSession = useCallback(async (booking: BookingResponse) => {
-    if (!user) throw new Error(isID ? 'Sesi pengguna tidak tersedia.' : 'User session is unavailable.');
+  const createPaymentSession = useCallback(async (booking: BookingResponse, paymentTab: Window | null = null) => {
+    if (!user) {
+      paymentTab?.close();
+      throw new Error(isID ? 'Sesi pengguna tidak tersedia.' : 'User session is unavailable.');
+    }
 
     const primaryGuest = booking.guests.find((guest) => guest.isPrimaryGuest) || booking.guests[0];
-    const payment = await paymentApi.create({
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      userId: user.userId,
-      hotelId: booking.hotelId,
-      roomId: booking.roomId,
-      amount: booking.totalAmount,
-      currency: booking.currency,
-      customerName: primaryGuest?.fullName || user.fullName,
-      customerEmail: primaryGuest?.email || user.email,
-      customerPhone: primaryGuest?.phone || '',
-    });
+    let payment: CreatePaymentResponse;
+    try {
+      payment = await paymentApi.create({
+        bookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        userId: user.userId,
+        hotelId: booking.hotelId,
+        roomId: booking.roomId,
+        amount: booking.totalAmount,
+        currency: booking.currency,
+        customerName: primaryGuest?.fullName || user.fullName,
+        customerEmail: primaryGuest?.email || user.email,
+        customerPhone: primaryGuest?.phone || '',
+      });
+    } catch (err) {
+      paymentTab?.close();
+      throw err;
+    }
 
     setPendingPayment(fromCreatedPayment(booking, payment));
     setPaymentStatus(payment.status);
     setCheckError(null);
     setAutoPollingStopped(false);
     pollCountRef.current = 0;
-    if (payment.redirectUrl) window.open(payment.redirectUrl, '_blank', 'noopener,noreferrer');
+    if (!payment.redirectUrl) {
+      paymentTab?.close();
+    } else if (paymentTab && !paymentTab.closed) {
+      paymentTab.location.href = payment.redirectUrl;
+    } else {
+      window.open(payment.redirectUrl, '_blank', 'noopener,noreferrer');
+    }
   }, [isID, user]);
 
   const checkPaymentStatus = useCallback(async (paymentId: number) => {
@@ -320,11 +396,6 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
               setCheckError(isID
                 ? 'Upaya pembayaran sebelumnya gagal. Roomly dapat membuat sesi baru dengan aman.'
                 : 'The previous payment attempt failed. Roomly can safely create a new session.');
-            } else if (!bookingCanAcceptPayment(booking) && !['PAID', 'REFUNDED'].includes(payment.status)) {
-              localStorage.removeItem(storageKey);
-              setRecoveryNotice(isID
-                ? 'Reservasi sebelumnya sudah tidak dapat dibayar. Anda dapat memulai reservasi baru; detail lama tetap tersedia di Pesanan Saya.'
-                : 'The previous booking can no longer accept payment. You can start a new booking; its details remain in My Bookings.');
             } else {
               adoptExistingPayment(booking, payment);
             }
@@ -461,7 +532,7 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
           await createPaymentSession(booking);
         } else {
           adoptExistingPayment(booking, existing);
-          if (existing.redirectUrl && existing.status === 'PENDING') {
+          if (existing.redirectUrl && existing.status === 'PENDING' && bookingCanAcceptPayment(booking)) {
             window.open(existing.redirectUrl, '_blank', 'noopener,noreferrer');
           }
         }
@@ -495,37 +566,75 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
     }
   };
 
+  // Nothing is saved until the booking exists, so leaving mid-way has to be a
+  // deliberate choice. Only the form renders the confirmation, so the status and
+  // error screens below must never hold a navigation back.
+  const isFormOnScreen = !pendingPayment && !isRestoringPayment && !recoveryFailed && !isResolvingStay && Boolean(hotel && selectedRoom);
+  const leaveGuard = useCheckoutLeaveGuard(
+    isFormOnScreen && (isSubmitting || step > 1 || Boolean(checkIn)),
+    '/',
+    isSubmitting,
+  );
+
   if (pendingPayment) {
+    const showResult = paymentStatus !== 'PENDING' && paymentStatus !== 'NOT_CREATED' && paymentStatus !== 'RECOVERY_FAILED';
     return (
-      <PaymentStatusScreen
-        isID={isID}
-        paymentStatus={paymentStatus}
-        redirectUrl={pendingPayment.redirectUrl}
-        booking={pendingPayment.booking}
-        isChecking={isChecking}
-        autoPollingStopped={autoPollingStopped}
-        checkError={checkError}
-        onCheck={pendingPayment.paymentId
-          ? () => { void checkPaymentStatus(pendingPayment.paymentId as number); }
-          : undefined}
-        onRetry={paymentStatus === 'NOT_CREATED' || paymentStatus === 'FAILED'
-          ? () => { void retryPayment(); }
-          : undefined}
-        onReopen={pendingPayment.redirectUrl
-          ? () => window.open(pendingPayment.redirectUrl as string, '_blank', 'noopener,noreferrer')
-          : undefined}
-        onDone={() => navigate('/bookings')}
-      />
+      <>
+        <PaymentStatusScreen
+          isID={isID}
+          paymentStatus={paymentStatus}
+          redirectUrl={pendingPayment.redirectUrl}
+          booking={pendingPayment.booking}
+          isChecking={isChecking}
+          autoPollingStopped={autoPollingStopped}
+          checkError={checkError}
+          onCheck={pendingPayment.paymentId
+            ? () => { void checkPaymentStatus(pendingPayment.paymentId as number); }
+            : undefined}
+          onRetry={paymentStatus === 'NOT_CREATED' || (paymentStatus === 'FAILED' && bookingCanAcceptPayment(pendingPayment.booking))
+            ? () => { void retryPayment(); }
+            : undefined}
+          onReopen={pendingPayment.redirectUrl
+            ? () => {
+              if (bookingCanAcceptPayment(pendingPayment.booking)) {
+                window.open(pendingPayment.redirectUrl as string, '_blank', 'noopener,noreferrer');
+              }
+            }
+            : undefined}
+          onDone={() => navigate('/bookings')}
+          onChooseDates={() => {
+            if (storageKey) localStorage.removeItem(storageKey);
+            setPendingPayment(null);
+            setPaymentStatus('PENDING');
+            setCheckError(null);
+            setError(null);
+            setCheckIn('');
+            setCheckOut('');
+            setQuoteResult(undefined);
+            setStep(1);
+            if (resumeBookingId) navigate(`/booking/${hotelId}/${roomId}`, { replace: true });
+            window.scrollTo({ top: 0 });
+          }}
+        />
+        {showResult && (
+          <CheckoutPaymentResult
+            key={`${pendingPayment.booking.id}:${paymentStatus}`}
+            isID={isID}
+            result={paymentStatus}
+            summary={{
+              bookingCode: pendingPayment.booking.bookingCode,
+              amount: pendingPayment.booking.totalAmount,
+              currency: pendingPayment.booking.currency,
+            }}
+            onViewBookings={() => navigate('/bookings', { replace: true })}
+          />
+        )}
+      </>
     );
   }
 
   if (isRestoringPayment) {
-    return (
-      <div className="booking-checkout min-h-[60vh] flex flex-col items-center justify-center gap-3 text-[14px] text-slate-600">
-        <Loader2 className="w-6 h-6 text-navy animate-spin" aria-hidden />
-        {isID ? 'Memulihkan progres pembayaran...' : 'Restoring payment progress...'}
-      </div>
-    );
+    return <BookingCheckoutSkeleton isID={isID} message={isID ? 'Memulihkan progres pembayaran...' : 'Restoring payment progress...'} />;
   }
 
   if (recoveryFailed) {
@@ -543,25 +652,20 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
   }
 
   if (isResolvingStay) {
-    return (
-      <div className="booking-checkout min-h-[60vh] flex flex-col items-center justify-center gap-3 text-[14px] text-slate-600">
-        <Loader2 className="w-6 h-6 text-navy animate-spin" aria-hidden />
-        {isID ? 'Menyiapkan reservasi...' : 'Preparing your reservation...'}
-      </div>
-    );
+    return <BookingCheckoutSkeleton isID={isID} message={isID ? 'Menyiapkan reservasi...' : 'Preparing your reservation...'} />;
   }
 
   if (!hotel || !selectedRoom) {
     return (
-      <div className="booking-checkout min-h-[60vh] flex flex-col items-center justify-center text-center gap-5 py-20">
-        <div className="w-16 h-16 rounded-full bg-navy-soft text-navy flex items-center justify-center">
-          <SearchX className="w-7 h-7" aria-hidden />
+      <div className="booking-checkout flex min-h-[60vh] flex-col items-center justify-center gap-5 py-20 text-center">
+        <div className="flex size-16 items-center justify-center rounded-full bg-gold-soft/70 text-gold-dark">
+          <SearchX className="size-7" aria-hidden />
         </div>
         <div>
-          <h2 className="font-serif text-2xl text-navy tracking-tight">
+          <h1 className="font-serif text-[26px] tracking-[-0.02em] text-navy-dark">
             {isID ? 'Kamar tidak ditemukan' : 'Room not found'}
-          </h2>
-          <p className="text-[14px] text-slate-600 mt-2 leading-relaxed max-w-xs mx-auto">
+          </h1>
+          <p className="mx-auto mt-2 max-w-xs text-[15px] leading-6 text-slate-600">
             {isID
               ? 'Tautan reservasi ini tidak valid atau kamar sudah tidak tersedia.'
               : 'This booking link is invalid or the room is no longer available.'}
@@ -569,20 +673,40 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
         </div>
         <Link
           to="/explore"
-          className="inline-flex items-center gap-2 min-h-11 px-5 rounded-xl bg-gold hover:bg-gold-dark text-white text-[14px] font-semibold transition-colors duration-200"
+          className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-gold px-6 text-sm font-semibold text-white transition-colors duration-200 hover:bg-gold-dark"
         >
-          {isID ? 'Kembali ke Explore' : 'Back to Explore'}
+          <ArrowLeft className="size-4" aria-hidden />
+          {isID ? 'Kembali ke Jelajahi' : 'Back to Explore'}
         </Link>
       </div>
     );
   }
 
-  const nights = calculateNights(checkIn, checkOut);
-  const estimatedTotal = selectedRoom.pricePerNight * nights;
-  const canProceed = step === 1 ? Boolean(checkIn && checkOut) : true;
+  const nights = checkIn && checkOut ? calculateNights(checkIn, checkOut) : 0;
+  const canProceed = step === 1 ? nights > 0 : step === 2 || Boolean(currentQuote);
+  const normalizedGuestPhone = normalizeGuestPhone(guestPhone);
+
+  const showInvalidGuestPhone = () => {
+    setShowGuestPhoneError(true);
+    setStep(2);
+    requestAnimationFrame(() => wizardRef.current?.querySelector<HTMLInputElement>('#guest-phone')?.focus());
+  };
 
   const handleFinalSubmit = async () => {
-    if (!user) return;
+    if (!currentQuote || isSubmitting) return;
+    if (!normalizedGuestPhone) {
+      showInvalidGuestPhone();
+      return;
+    }
+    if (!user) {
+      setError(isID ? 'Kamu sudah keluar dari akun. Masuk lagi untuk menyelesaikan reservasi.' : 'You are signed out. Sign in again to complete this reservation.');
+      return;
+    }
+    // Browsers allow a new tab only within the click that asked for it, and
+    // creating the booking plus the Midtrans session can outlast that on a busy
+    // machine, so the payment tab used to be silently blocked. Open it now and
+    // point it at Midtrans once the session exists.
+    const paymentTab = openPaymentPlaceholder(isID);
     setError(null);
     setRecoveryNotice(null);
     setIsSubmitting(true);
@@ -595,9 +719,10 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
         adultCount: adults,
         childCount: children,
         guests: [
-          { fullName: guestName, email: guestEmail, phone: guestPhone, isPrimaryGuest: true },
+          { fullName: guestName, email: guestEmail, phone: normalizedGuestPhone, isPrimaryGuest: true },
         ],
         specialRequest: specialRequests || undefined,
+        expectedTotalAmount: currentQuote.totalAmount,
       });
 
       const uiBooking = mapBookingToUI(created, {
@@ -610,7 +735,7 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
       onCompleteBooking(uiBooking);
 
       try {
-        await createPaymentSession(created);
+        await createPaymentSession(created, paymentTab);
       } catch (paymentErr) {
         console.error('Payment session could not be created', paymentErr);
         setPendingPayment({ booking: created, paymentId: null, redirectUrl: null });
@@ -622,9 +747,16 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
               : 'The booking was created, but the payment session is not available yet.'));
       }
     } catch (err) {
+      paymentTab?.close();
       if (err instanceof ApiError) {
-        const fieldErrors = err.body?.errors ? Object.values(err.body.errors).join(', ') : null;
-        setError(fieldErrors || err.message);
+        if (err.status === 409 && err.body?.errors?.expectedTotalAmount === 'PRICE_CHANGED') {
+          retryQuote();
+          setError(isID ? 'Tarif berubah. Periksa total terbaru sebelum mengonfirmasi kembali.'
+            : 'The rate has changed. Review the updated total before confirming again.');
+        } else {
+          const fieldErrors = err.body?.errors ? Object.values(err.body.errors).join(', ') : null;
+          setError(fieldErrors || err.message);
+        }
       } else {
         setError(isID ? 'Gagal membuat reservasi. Coba lagi.' : 'Failed to create the booking. Please try again.');
       }
@@ -633,84 +765,134 @@ export const BookingCheckoutPage: React.FC<BookingCheckoutPageProps> = ({
     }
   };
 
+  const goToStep = (next: 1 | 2 | 3) => {
+    if (isSubmitting || next === step) return;
+    if (next === 3 && !normalizedGuestPhone) {
+      showInvalidGuestPhone();
+      return;
+    }
+    setError(null);
+    setStep(next);
+    // On phones the next step would otherwise open scrolled to its bottom.
+    requestAnimationFrame(() => {
+      const wizard = wizardRef.current;
+      wizard?.querySelector<HTMLHeadingElement>('[data-checkout-step-heading]')?.focus({ preventScroll: true });
+      if (wizard && wizard.getBoundingClientRect().top < 84) wizard.scrollIntoView({ block: 'start' });
+    });
+  };
+
   return (
-    <div className="booking-checkout max-w-3xl mx-auto pb-12">
-      <button
-        type="button"
-        onClick={() => navigate(-1)}
-        className="group inline-flex items-center gap-2 min-h-11 text-[13px] font-medium text-slate-600 hover:text-navy transition-colors duration-200 cursor-pointer mb-4"
-      >
-        <ArrowLeft className="w-4 h-4" aria-hidden />
-        {isID ? 'Kembali' : 'Back'}
-      </button>
+    <div className="booking-checkout mx-auto max-w-[1280px] pb-5 lg:pb-12" data-checkout-page>
+      <header className="mb-4 sm:mb-6">
+        <Link to={`/hotel/${hotel.id}/room/${selectedRoom.id}`}
+          className="-ml-2 mb-1 inline-flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm font-semibold text-slate-700 hover:bg-navy-soft hover:text-navy-dark sm:mb-2">
+          <ArrowLeft className="size-4" aria-hidden />{isID ? 'Detail kamar' : 'Room details'}
+        </Link>
+        <h1 id="checkout-heading" className="font-serif text-[clamp(2rem,4vw,3.25rem)] leading-[1.1] tracking-[-0.04em] text-navy-dark">
+          {isID ? 'Reservasi kamar' : 'Room reservation'}
+        </h1>
+      </header>
 
-      {recoveryNotice && (
-        <div className="mb-4 p-3.5 rounded-2xl bg-gold-soft border border-gold-light/50 text-gold-dark text-[13px] leading-relaxed">
-          {recoveryNotice}
-        </div>
-      )}
-
-      <div className="bg-white rounded-3xl border border-navy-soft overflow-hidden" style={{ boxShadow: 'var(--home-shadow)' }}>
-        <BookingWizardHeader
-          isID={isID}
-          hotelName={hotel.name}
-          roomName={selectedRoom.name}
-          step={step}
-          onClose={() => navigate(-1)}
-        />
-
-        <div className="p-6 space-y-6">
-          {step === 1 && (
-            <DatesGuestsStep
-              isID={isID}
-              checkIn={checkIn}
-              checkOut={checkOut}
-              adults={adults}
-              children={children}
-              nights={nights}
-              selectedRoom={selectedRoom}
-              onCheckInChange={setCheckIn}
-              onCheckOutChange={setCheckOut}
-              onAdultsChange={setAdults}
-              onChildrenChange={setChildren}
-            />
-          )}
-
-          {step === 2 && (
-            <GuestDetailsStep
-              isID={isID}
-              guestName={guestName}
-              guestEmail={guestEmail}
-              guestPhone={guestPhone}
-              specialRequests={specialRequests}
-              onGuestNameChange={setGuestName}
-              onGuestEmailChange={setGuestEmail}
-              onGuestPhoneChange={setGuestPhone}
-              onSpecialRequestsChange={setSpecialRequests}
-            />
-          )}
-
-          {step === 3 && (
-            <ReviewPayStep
-              isID={isID}
-              nights={nights}
-              estimatedTotal={estimatedTotal}
-              roomName={selectedRoom.name}
-              error={error}
-            />
-          )}
+      <div className="grid items-start gap-4 sm:gap-5 lg:grid-cols-[minmax(0,1fr)_338px] lg:gap-7 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0 lg:sticky lg:top-[89px] lg:col-start-2 lg:row-start-1">
+          <BookingSummary
+            isID={isID}
+            hotel={hotel}
+            room={selectedRoom}
+            roomPhoto={catalogPhoto ?? (roomPhoto?.id === selectedRoom.id ? roomPhoto.url : undefined)}
+            checkIn={checkIn}
+            checkOut={checkOut}
+            nights={nights}
+            adults={adults}
+            children={children}
+            quote={currentQuote}
+          />
         </div>
 
-        <BookingFooter
-          isID={isID}
-          step={step}
-          isSubmitting={isSubmitting}
-          canProceed={canProceed}
-          onBack={() => setStep((step - 1) as 1 | 2 | 3)}
-          onNext={() => setStep((step + 1) as 1 | 2 | 3)}
-          onSubmit={handleFinalSubmit}
-        />
+        <div ref={wizardRef} className="min-w-0 scroll-mt-[84px] rounded-[24px] border border-slate-200 bg-white shadow-[0_10px_28px_rgba(15,35,68,0.05)] lg:col-start-1 lg:row-start-1" data-checkout-wizard>
+          <BookingWizardHeader isID={isID} step={step} disabled={isSubmitting} onStep={goToStep} />
+          {recoveryNotice && (
+            <div className="mx-4 mt-4 rounded-2xl border border-gold-light/50 bg-gold-soft p-3.5 text-[13px] leading-5 text-gold-dark sm:mx-6 sm:mt-6 lg:mx-7">
+              {recoveryNotice}
+            </div>
+          )}
+
+          <div className="p-3.5 sm:p-6 lg:p-7">
+            {step === 1 && (
+              <DatesGuestsStep
+                isID={isID}
+                checkIn={checkIn}
+                checkOut={checkOut}
+                adults={adults}
+                children={children}
+                nights={nights}
+                selectedRoom={selectedRoom}
+                onCheckInChange={setCheckIn}
+                onCheckOutChange={setCheckOut}
+                onAdultsChange={setAdults}
+                onChildrenChange={setChildren}
+              />
+            )}
+
+            {step === 2 && (
+              <GuestDetailsStep
+                isID={isID}
+                guestName={guestName}
+                guestEmail={guestEmail}
+                guestPhone={guestPhone}
+                guestPhoneInvalid={showGuestPhoneError && !normalizedGuestPhone}
+                specialRequests={specialRequests}
+                onGuestNameChange={setGuestName}
+                onGuestEmailChange={setGuestEmail}
+                onGuestPhoneChange={setGuestPhone}
+                onSpecialRequestsChange={setSpecialRequests}
+              />
+            )}
+
+            {step === 3 && (
+              <ReviewPayStep
+                isID={isID}
+                nights={nights}
+                checkIn={checkIn}
+                checkOut={checkOut}
+                adults={adults}
+                children={children}
+                guestName={guestName}
+                guestEmail={guestEmail}
+                guestPhone={guestPhone}
+                specialRequests={specialRequests}
+                error={error}
+                quote={currentQuote}
+                onRetryQuote={retryQuote}
+                isSubmitting={isSubmitting}
+                onEditStep={goToStep}
+              />
+            )}
+          </div>
+
+          <BookingFooter
+            isID={isID}
+            step={step}
+            isSubmitting={isSubmitting}
+            canProceed={canProceed}
+            nights={nights}
+            quote={currentQuote}
+            onBack={() => goToStep((step - 1) as 1 | 2 | 3)}
+            onNext={() => goToStep((step + 1) as 1 | 2 | 3)}
+            onSubmit={handleFinalSubmit}
+          />
+        </div>
       </div>
+
+      <CheckoutLeaveDialog
+        isID={isID}
+        hold={leaveGuard.hold}
+        processing={isSubmitting}
+        loggingOut={leaveGuard.isLoggingOut}
+        logoutFailed={leaveGuard.logoutFailed}
+        onStay={leaveGuard.stay}
+        onLeave={leaveGuard.leave}
+      />
     </div>
   );
 };

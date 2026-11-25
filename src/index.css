@@ -13,11 +13,23 @@
   --color-gold-soft: #F6EBD4;
 }
 
+/* Laptop viewports where a full-height hero would push content below the fold. */
+@custom-variant short (@media (max-height: 820px));
+
 /* Home-only Soft UI tokens — does not change global app chrome */
 .home-luxury,
 .explore-page,
 .auth-modal,
+.front-desk,
+.admin-dashboard,
+.operations-page,
+.notification-panel,
+.invoice-dialog,
+.hotel-detail-modal,
 .settings-page,
+.bookings-page,
+.wishlist-page,
+.analytics-page,
 .room-detail-page,
 .booking-checkout {
   font-family: 'Karla', ui-sans-serif, system-ui, sans-serif;
@@ -32,7 +44,15 @@
 .home-luxury .font-serif,
 .explore-page .font-serif,
 .auth-modal .font-serif,
+.front-desk .font-serif,
+.admin-dashboard .font-serif,
+.operations-page .font-serif,
+.notification-panel .font-serif,
+.invoice-dialog .font-serif,
 .settings-page .font-serif,
+.bookings-page .font-serif,
+.wishlist-page .font-serif,
+.analytics-page .font-serif,
 .room-detail-page .font-serif,
 .booking-checkout .font-serif {
   font-family: 'Playfair Display', ui-serif, Georgia, serif;
@@ -41,7 +61,16 @@
 .home-luxury :focus-visible,
 .explore-page :focus-visible,
 .auth-modal :focus-visible,
+.front-desk :focus-visible,
+.admin-dashboard :focus-visible,
+.operations-page :focus-visible,
+.notification-panel :focus-visible,
+.invoice-dialog :focus-visible,
+.hotel-detail-modal :focus-visible,
 .settings-page :focus-visible,
+.bookings-page :focus-visible,
+.wishlist-page :focus-visible,
+.analytics-page :focus-visible,
 .room-detail-page :focus-visible,
 .booking-checkout :focus-visible,
 .site-header :focus-visible {
@@ -54,8 +83,290 @@
   font-family: 'Playfair Display', ui-serif, Georgia, serif;
 }
 
+.invoice-dialog header :focus-visible {
+  outline: 2px solid var(--color-gold-light);
+  outline-offset: 2px;
+}
+
+.invoice-dialog [role='region']:focus-visible {
+  outline-offset: -2px;
+}
+
 body {
   font-family: var(--font-sans);
+}
+
+.site-header,
+.site-topbar {
+  font-family: 'Karla', ui-sans-serif, system-ui, sans-serif;
+}
+
+.roomly-search-menu {
+  font-family: 'Karla', ui-sans-serif, system-ui, sans-serif;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.roomly-search-menu::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.recommended-hotels-rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.recommended-hotels-rail::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.home-luxury .recommended-hotels-chrome:focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.explore-page #explore-results-heading {
+  scroll-margin-top: calc(var(--explore-header-height, 72px) + 20px);
+}
+
+.explore-page input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.bookings-page input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.wishlist-page input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+.wishlist-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.wishlist-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.wishlist-page [data-wishlist-collage] :focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.bookings-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.bookings-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.bookings-page [data-bookings-hero] :focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.analytics-page [data-analytics-hero] :focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.analytics-page [data-analytics-period] [role="group"] :focus-visible {
+  outline-color: var(--color-navy);
+}
+
+@media (min-width: 1280px) {
+  .explore-filter-sidebar {
+    max-height: calc(100dvh - var(--explore-header-height, 72px) - 32px);
+  }
+
+  /* The scrollbar stays hidden, so scroll shadows signal when more filters sit out of view. */
+  .explore-filter-scroll {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    background:
+      linear-gradient(white 40%, transparent) top / 100% 28px no-repeat local,
+      linear-gradient(transparent, white 60%) bottom / 100% 28px no-repeat local,
+      linear-gradient(rgb(21 42 102 / 9%), transparent) top / 100% 10px no-repeat scroll,
+      linear-gradient(transparent, rgb(21 42 102 / 9%)) bottom / 100% 10px no-repeat scroll;
+  }
+
+  .explore-filter-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.explore-page [data-explore-hero-band] :focus-visible,
+.settings-page [data-settings-hero] :focus-visible,
+.room-detail-page [data-room-gallery] :focus-visible,
+.booking-checkout [data-checkout-hero] :focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.explore-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.explore-no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.explore-range {
+  --range-fill: 100%;
+  width: 100%;
+  height: 2.75rem;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.explore-range::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--color-gold) var(--range-fill), #e5e2da var(--range-fill));
+}
+
+.explore-range::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #e5e2da;
+}
+
+.explore-range::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-gold);
+}
+
+.explore-range::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  margin-top: -9px;
+  border: 2px solid var(--color-gold);
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 8px rgb(21 42 102 / 18%);
+  transition: transform 150ms ease;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.explore-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-gold);
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 8px rgb(21 42 102 / 18%);
+  transition: transform 150ms ease;
+}
+
+.explore-range:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+
+.explore-range:active::-moz-range-thumb {
+  transform: scale(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .explore-range::-webkit-slider-thumb,
+  .explore-range::-moz-range-thumb {
+    transition: none;
+  }
+}
+
+.home-luxury .cinematic-hero figure :focus-visible,
+.home-luxury .cinematic-hero > div:first-child > div :focus-visible {
+  outline-color: var(--color-gold-light);
+}
+
+.site-topbar :focus-visible {
+  outline: 2px solid var(--color-gold-light);
+  outline-offset: 2px;
+}
+
+/* The auth dialog keeps the Roomly palette while giving the form one clear
+   primary action. Shared by sign-in, registration, and verification. */
+.auth-modal .auth-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 3.125rem;
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
+  background: var(--color-navy-dark);
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 180ms, box-shadow 180ms;
+}
+
+.auth-modal .auth-primary:hover:not(:disabled) {
+  background: var(--color-navy);
+  box-shadow: 0 4px 14px rgb(21 42 102 / 14%);
+}
+
+.auth-modal .auth-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.auth-modal .auth-primary:disabled[aria-busy="true"] {
+  opacity: 1;
+  cursor: wait;
+}
+
+.auth-modal .auth-otp-primary:disabled:not([aria-busy="true"]) {
+  opacity: 1;
+  background: #eef1f6;
+  color: #536481;
+}
+
+.auth-modal .auth-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgb(255 255 255 / 40%);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: auth-spin 700ms linear infinite;
+}
+
+.auth-modal .auth-mode-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 240ms cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease;
+}
+
+.auth-modal .auth-mode-detail[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-modal .auth-mode-detail {
+    transition: none;
+  }
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ===== Premium Custom Scrollbar ===== */
@@ -91,6 +402,34 @@ body {
 
 *::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Keep hotel details scrollable without a visible scrollbar. */
+.hotel-detail-modal .overflow-y-auto,
+.auth-modal {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.hotel-detail-modal .overflow-y-auto::-webkit-scrollbar,
+.auth-modal::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Pages scroll on the document, so this hides the page scrollbar on every route. */
+html,
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Continuous decorative loops as native CSS animations instead of JS-driven

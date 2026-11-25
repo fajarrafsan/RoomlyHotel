@@ -1,274 +1,217 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Database, Plus, Trash2, Loader2, Sparkles, Building } from 'lucide-react';
+import { useCallback, useState, type FormEvent } from 'react';
+import { Building2, Database, LoaderCircle, Pencil, Plus, Search, Sparkles, XCircle } from 'lucide-react';
 import { adminApi } from '../api/admin';
-import { ApiError } from '../lib/http';
-import { Language } from '../types';
-import { FacilityCategory, FacilityResponse } from '../types/api/hotel';
-import { AmenityGroup, AmenityResponse } from '../types/api/room';
 import { AdminAccessGuard } from '../components/admin/AdminAccessGuard';
-import { AdminPageShell, AdminTableCard } from '../components/admin/AdminPageShell';
+import { AdminFormModal, SelectField, TextAreaField, TextField } from '../components/admin/AdminFormModal';
+import { OperationsDialog } from '../components/admin/OperationsDialog';
+import {
+  OperationsEmpty, OperationsList, OperationsNotice, OperationsPage, OperationsTabs,
+  operationButton, operationDanger, operationField, operationSecondary,
+} from '../components/admin/OperationsPage';
 import { StatusPill } from '../components/admin/StatusPill';
+import { useAuth } from '../context/AuthContext';
+import { useOperationsQuery } from '../hooks/useOperationsQuery';
+import { ApiError } from '../lib/http';
+import type { Language } from '../types';
+import type { FacilityCategory, FacilityResponse } from '../types/api/hotel';
+import type { AmenityGroup, AmenityResponse } from '../types/api/room';
 
-const AMENITY_GROUPS: AmenityGroup[] = [
-  'TOP', 'ROOM', 'BATHROOM', 'VIEW', 'FOOD', 'ACCESSIBILITY', 'SAFETY', 'ENTERTAINMENT',
-];
-const FACILITY_CATEGORIES: FacilityCategory[] = [
-  'GENERAL', 'INTERNET', 'FOOD', 'FITNESS', 'WELLNESS', 'RECREATION',
-  'BUSINESS', 'TRANSPORTATION', 'ACCESSIBILITY', 'FAMILY', 'SECURITY', 'DINING',
-];
+const groups: Record<AmenityGroup, [string, string]> = {
+  TOP: ['Unggulan', 'Top'], ROOM: ['Kamar', 'Room'], BATHROOM: ['Kamar mandi', 'Bathroom'],
+  VIEW: ['Pemandangan', 'View'], FOOD: ['Makanan', 'Food'], ACCESSIBILITY: ['Aksesibilitas', 'Accessibility'],
+  SAFETY: ['Keselamatan', 'Safety'], ENTERTAINMENT: ['Hiburan', 'Entertainment'],
+};
+const categories: Record<FacilityCategory, [string, string]> = {
+  GENERAL: ['Umum', 'General'], INTERNET: ['Internet', 'Internet'], FOOD: ['Makanan', 'Food'],
+  FITNESS: ['Kebugaran', 'Fitness'], WELLNESS: ['Kesehatan & relaksasi', 'Wellness'], RECREATION: ['Rekreasi', 'Recreation'],
+  BUSINESS: ['Bisnis', 'Business'], TRANSPORTATION: ['Transportasi', 'Transportation'],
+  ACCESSIBILITY: ['Aksesibilitas', 'Accessibility'], FAMILY: ['Keluarga', 'Family'],
+  SECURITY: ['Keamanan', 'Security'], DINING: ['Restoran', 'Dining'],
+};
 
-const INPUT = 'p-2 rounded-lg border border-slate-200 text-[12px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors';
-const LABEL = 'text-[10px] font-semibold text-slate-500 block mb-1';
+type Catalog = 'amenities' | 'facilities';
+type Entry = AmenityResponse | FacilityResponse;
+type Dialog = { kind: 'form'; entry: Entry | null } | { kind: 'disable'; entry: Entry };
+const entryGroup = (entry: Entry) => 'amenityGroup' in entry ? entry.amenityGroup : entry.category;
+const newDraft = { name: '', icon: '', description: '', group: 'ROOM', status: 'ACTIVE' as Entry['status'] };
 
-/**
- * Shared master data: room amenities (room-service) and hotel facilities
- * (hotel-service). These are the catalogs that the per-room and per-hotel
- * assignment screens pick from, so nothing can be assigned until they exist.
- */
-export const AdminMasterDataPage: React.FC<{ language: Language; onOpenAuth?: () => void }> = ({
-  language,
-  onOpenAuth,
-}) => {
+export function AdminMasterDataPage({ language, onOpenAuth }: { language: Language; onOpenAuth?: () => void }) {
   const isID = language === 'ID';
-  const [tab, setTab] = useState<'amenities' | 'facilities'>('amenities');
-
-  const [amenities, setAmenities] = useState<AmenityResponse[]>([]);
-  const [facilities, setFacilities] = useState<FacilityResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const locale = isID ? 0 : 1;
+  const { user, isLoading: authLoading } = useAuth();
+  const allowed = user?.role === 'ADMIN';
+  const [tab, setTab] = useState<Catalog>('amenities');
+  const [search, setSearch] = useState('');
+  const [group, setGroup] = useState('');
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  const [draft, setDraft] = useState(newDraft);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const isAmenity = tab === 'amenities';
+  const label = isAmenity ? (isID ? 'Amenity kamar' : 'Room amenities') : (isID ? 'Fasilitas hotel' : 'Hotel facilities');
+  const fieldLabel = isAmenity ? (isID ? 'Grup' : 'Group') : (isID ? 'Kategori' : 'Category');
+  const options = Object.entries(isAmenity ? groups : categories).map(([value, labels]) => ({ value, label: labels[locale] }));
 
-  const [amenityForm, setAmenityForm] = useState({
-    name: '', icon: '', amenityGroup: 'ROOM' as AmenityGroup, description: '',
-  });
-  const [facilityForm, setFacilityForm] = useState({
-    name: '', icon: '', category: 'GENERAL' as FacilityCategory, description: '',
-  });
+  const read = useCallback(() => tab === 'amenities' ? adminApi.listAmenities() : adminApi.listFacilities(), [tab, user?.userId]);
+  const { data, loading, error, refresh } = useOperationsQuery<Entry[]>(read, allowed, isID ? 'Gagal memuat katalog.' : 'Could not load the catalog.');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      if (tab === 'amenities') setAmenities(await adminApi.listAmenities());
-      else setFacilities(await adminApi.listFacilities());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Gagal memuat data.' : 'Failed to load data.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, isID]);
+  const patchDraft = (fields: Partial<typeof newDraft>) => {
+    setDraft(previous => ({ ...previous, ...fields }));
+    setActionError(null);
+  };
 
-  useEffect(() => { load(); }, [load]);
+  const openForm = (entry: Entry | null) => {
+    setActionError(null);
+    setDraft(entry ? {
+      name: entry.name, icon: entry.icon ?? '', description: entry.description ?? '',
+      group: entryGroup(entry), status: entry.status,
+    } : { ...newDraft, group: isAmenity ? 'ROOM' : 'GENERAL' });
+    setDialog({ kind: 'form', entry });
+  };
 
-  const run = async (fn: () => Promise<void>) => {
+  const mutate = async (operation: () => Promise<unknown>, message: string) => {
+    if (busy) return;
     setBusy(true);
-    setError(null);
+    setActionError(null);
+    setNotice(null);
     try {
-      await fn();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : (isID ? 'Aksi gagal.' : 'Action failed.'));
+      await operation();
+      setDialog(null);
+      setNotice(message);
+      await refresh();
+    } catch (failure) {
+      setActionError(failure instanceof ApiError ? failure.message : (isID ? 'Perubahan gagal disimpan.' : 'Could not save the changes.'));
     } finally {
       setBusy(false);
     }
   };
 
-  const isEmpty = tab === 'amenities' ? amenities.length === 0 : facilities.length === 0;
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (dialog?.kind !== 'form') return;
+    const name = draft.name.trim();
+    if (!name) {
+      setActionError(isID ? 'Nama wajib diisi.' : 'Enter a name.');
+      return;
+    }
+    const entry = dialog.entry;
+    const fields = { name, icon: draft.icon.trim(), description: draft.description.trim() };
+    const newFields = { ...fields, icon: fields.icon || undefined, description: fields.description || undefined };
+    const operation = () => {
+      if (isAmenity) {
+        const amenityGroup = draft.group as AmenityGroup;
+        return entry ? adminApi.updateAmenity(entry.id, { ...fields, amenityGroup })
+          : adminApi.createAmenity({ ...newFields, amenityGroup });
+      }
+      const category = draft.group as FacilityCategory;
+      return entry ? adminApi.updateFacility(entry.id, { ...fields, category, status: draft.status })
+        : adminApi.createFacility({ ...newFields, category });
+    };
+    void mutate(operation, isID ? 'Katalog diperbarui.' : 'Catalog updated.');
+  };
+
+  if (!allowed) {
+    if (authLoading) return <OperationsEmpty loading isID={isID} empty="" />;
+    return <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>{null}</AdminAccessGuard>;
+  }
+
+  const needle = search.trim().toLowerCase();
+  const rows = (data ?? []).filter(entry => (!group || entryGroup(entry) === group)
+    && (!needle || [entry.name, entry.description, entry.icon].some(value => value?.toLowerCase().includes(needle))));
+  const entryLabel = isAmenity ? 'amenity' : (isID ? 'fasilitas' : 'facility');
+  const addLabel = isID ? `Tambah ${entryLabel}` : `Add ${entryLabel}`;
+  const editLabel = isID ? `Ubah ${entryLabel}` : `Edit ${entryLabel}`;
+  const disableLabel = isID ? `Nonaktifkan ${entryLabel}` : `Deactivate ${entryLabel}`;
 
   return (
-    <AdminAccessGuard isID={isID} onOpenAuth={onOpenAuth}>
-      <AdminPageShell
-        icon={Database}
-        title={isID ? 'Master Data' : 'Master Data'}
-        subtitle={
-          isID
-            ? 'Katalog amenity kamar dan fasilitas hotel. Item di sini yang bisa dipilih saat menugaskan ke kamar atau properti.'
-            : 'The room-amenity and hotel-facility catalogs. Only items defined here can be assigned to rooms or properties.'
-        }
-        endpoint={tab === 'amenities' ? '/api/admin/amenities' : '/api/admin/facilities'}
-        isID={isID}
-        loading={loading}
-        error={error}
-        onRefresh={load}
-        filters={
-          <div className="flex items-center gap-1">
-            {([
-              { key: 'amenities' as const, label: isID ? 'Amenity Kamar' : 'Room Amenities', icon: Sparkles },
-              { key: 'facilities' as const, label: isID ? 'Fasilitas Hotel' : 'Hotel Facilities', icon: Building },
-            ]).map((t) => {
-              const Icon = t.icon;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={`px-3.5 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer inline-flex items-center gap-1.5 ${
-                    tab === t.key ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {t.label}
-                </button>
-              );
-            })}
+    <OperationsPage icon={Database} title={isID ? 'Data Master' : 'Master Data'}
+      description={isID ? 'Kelola pilihan amenity kamar dan fasilitas yang digunakan di katalog properti.' : 'Manage the room amenities and hotel facilities available in the property catalog.'}
+      isID={isID} loading={loading} blocked={busy || !!dialog} onRefresh={() => void refresh()}
+      action={<button type="button" onClick={() => openForm(null)} disabled={busy} className={operationButton + ' bg-gold-soft text-[#162951] hover:bg-white'}>
+        <Plus className="size-4" aria-hidden />{addLabel}
+      </button>}>
+      <OperationsTabs<Catalog> label={isID ? 'Jenis katalog' : 'Catalogs'} value={tab} items={[
+        { value: 'amenities', label: isID ? 'Amenity kamar' : 'Room amenities', icon: Sparkles },
+        { value: 'facilities', label: isID ? 'Fasilitas hotel' : 'Hotel facilities', icon: Building2 },
+      ]} onChange={value => {
+        if (value === tab || busy) return;
+        setTab(value); setSearch(''); setGroup(''); setNotice(null);
+      }} />
+      {error && <OperationsNotice>{error}</OperationsNotice>}
+      {notice && <OperationsNotice success>{notice}</OperationsNotice>}
+      <OperationsList title={label} isID={isID} rows={rows} loading={loading}
+        description={data && !loading ? `${rows.length} ${isID ? 'item ditampilkan' : 'items shown'}` : undefined}
+        empty={error ? (isID ? 'Katalog belum tersedia.' : 'The catalog is unavailable.')
+          : search.trim() || group ? (isID ? 'Tidak ada item yang cocok.' : 'No matching items.')
+            : (isID ? 'Belum ada item di katalog ini.' : 'There are no items in this catalog yet.')}
+        controls={<div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(150px,auto)] lg:w-auto lg:min-w-105">
+          <label className="relative min-w-0">
+            <span className="sr-only">{isID ? 'Cari katalog' : 'Search the catalog'}</span>
+            <Search className="pointer-events-none absolute top-3.5 left-3 size-4 text-slate-500" aria-hidden />
+            <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+              className={operationField + ' pl-9'} placeholder={isID ? 'Cari nama item…' : 'Search item name…'} />
+          </label>
+          <select aria-label={fieldLabel} value={group} onChange={event => setGroup(event.target.value)} className={operationField + ' bg-white'}>
+            <option value="">{isAmenity ? (isID ? 'Semua grup' : 'All groups') : (isID ? 'Semua kategori' : 'All categories')}</option>
+            {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </div>}
+        primary={{ label: isID ? 'Nama' : 'Name', render: entry => (
+          <div className="max-w-[32rem]">
+            <p className="font-semibold text-navy-dark [overflow-wrap:anywhere]">{entry.name}</p>
+            {entry.description && <p className="mt-1 text-xs leading-5 text-slate-600 [overflow-wrap:anywhere]">{entry.description}</p>}
           </div>
-        }
-      >
-        {tab === 'amenities' ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(async () => {
-                const created = await adminApi.createAmenity({
-                  name: amenityForm.name.trim(),
-                  icon: amenityForm.icon.trim() || undefined,
-                  amenityGroup: amenityForm.amenityGroup,
-                  description: amenityForm.description.trim() || undefined,
-                });
-                setAmenities((prev) => [created, ...prev]);
-                setAmenityForm({ ...amenityForm, name: '', icon: '', description: '' });
-              });
-            }}
-            className="bg-white rounded-2xl border border-slate-100 p-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end"
-          >
-            <label><span className={LABEL}>{isID ? 'Nama' : 'Name'}</span>
-              <input required maxLength={150} value={amenityForm.name}
-                onChange={(e) => setAmenityForm({ ...amenityForm, name: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <label><span className={LABEL}>{isID ? 'Grup' : 'Group'}</span>
-              <select value={amenityForm.amenityGroup}
-                onChange={(e) => setAmenityForm({ ...amenityForm, amenityGroup: e.target.value as AmenityGroup })}
-                className={`w-full ${INPUT} cursor-pointer`}>
-                {AMENITY_GROUPS.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </label>
-            <label><span className={LABEL}>Icon</span>
-              <input maxLength={100} value={amenityForm.icon} placeholder="wifi"
-                onChange={(e) => setAmenityForm({ ...amenityForm, icon: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <label><span className={LABEL}>{isID ? 'Deskripsi' : 'Description'}</span>
-              <input maxLength={500} value={amenityForm.description}
-                onChange={(e) => setAmenityForm({ ...amenityForm, description: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <button type="submit" disabled={busy}
-              className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[12px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50">
-              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              {isID ? 'Tambah' : 'Add'}
-            </button>
-          </form>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              run(async () => {
-                const created = await adminApi.createFacility({
-                  name: facilityForm.name.trim(),
-                  icon: facilityForm.icon.trim() || undefined,
-                  category: facilityForm.category,
-                  description: facilityForm.description.trim() || undefined,
-                });
-                setFacilities((prev) => [created, ...prev]);
-                setFacilityForm({ ...facilityForm, name: '', icon: '', description: '' });
-              });
-            }}
-            className="bg-white rounded-2xl border border-slate-100 p-4 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end"
-          >
-            <label><span className={LABEL}>{isID ? 'Nama' : 'Name'}</span>
-              <input required maxLength={100} value={facilityForm.name}
-                onChange={(e) => setFacilityForm({ ...facilityForm, name: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <label><span className={LABEL}>{isID ? 'Kategori' : 'Category'}</span>
-              <select value={facilityForm.category}
-                onChange={(e) => setFacilityForm({ ...facilityForm, category: e.target.value as FacilityCategory })}
-                className={`w-full ${INPUT} cursor-pointer`}>
-                {FACILITY_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
-            <label><span className={LABEL}>Icon</span>
-              <input maxLength={100} value={facilityForm.icon} placeholder="pool"
-                onChange={(e) => setFacilityForm({ ...facilityForm, icon: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <label><span className={LABEL}>{isID ? 'Deskripsi' : 'Description'}</span>
-              <input maxLength={500} value={facilityForm.description}
-                onChange={(e) => setFacilityForm({ ...facilityForm, description: e.target.value })} className={`w-full ${INPUT}`} />
-            </label>
-            <button type="submit" disabled={busy}
-              className="px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[12px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50">
-              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              {isID ? 'Tambah' : 'Add'}
-            </button>
-          </form>
-        )}
-
-        <AdminTableCard
-          isID={isID}
-          loading={loading}
-          isEmpty={isEmpty}
-          emptyLabel={isID ? 'Belum ada data.' : 'No records yet.'}
-        >
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="px-4 py-3">{isID ? 'Nama' : 'Name'}</th>
-                <th className="px-4 py-3">{tab === 'amenities' ? (isID ? 'Grup' : 'Group') : (isID ? 'Kategori' : 'Category')}</th>
-                <th className="px-4 py-3">Icon</th>
-                <th className="px-4 py-3">{isID ? 'Deskripsi' : 'Description'}</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 text-slate-700">
-              {tab === 'amenities'
-                ? amenities.map((a) => (
-                    <tr key={a.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{a.name}</td>
-                      <td className="px-4 py-3 text-slate-500">{a.amenityGroup}</td>
-                      <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{a.icon || '—'}</td>
-                      <td className="px-4 py-3 text-slate-500 max-w-[260px] truncate">{a.description || '—'}</td>
-                      <td className="px-4 py-3"><StatusPill status={a.status} /></td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => {
-                            if (!window.confirm(isID ? `Hapus amenity "${a.name}"?` : `Delete amenity "${a.name}"?`)) return;
-                            run(async () => {
-                              await adminApi.deleteAmenity(a.id);
-                              setAmenities((prev) => prev.filter((x) => x.id !== a.id));
-                            });
-                          }}
-                          disabled={busy}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-all cursor-pointer disabled:opacity-40"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                : facilities.map((f) => (
-                    <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{f.name}</td>
-                      <td className="px-4 py-3 text-slate-500">{f.category}</td>
-                      <td className="px-4 py-3 text-slate-400 font-mono text-[11px]">{f.icon || '—'}</td>
-                      <td className="px-4 py-3 text-slate-500 max-w-[260px] truncate">{f.description || '—'}</td>
-                      <td className="px-4 py-3"><StatusPill status={f.status} /></td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => {
-                            if (!window.confirm(isID ? `Hapus fasilitas "${f.name}"?` : `Delete facility "${f.name}"?`)) return;
-                            run(async () => {
-                              await adminApi.deleteFacility(f.id);
-                              setFacilities((prev) => prev.filter((x) => x.id !== f.id));
-                            });
-                          }}
-                          disabled={busy}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-all cursor-pointer disabled:opacity-40"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-        </AdminTableCard>
-      </AdminPageShell>
-    </AdminAccessGuard>
+        ) }}
+        columns={[
+          { label: fieldLabel, render: entry => options.find(option => option.value === entryGroup(entry))?.label ?? entryGroup(entry) },
+          { label: isID ? 'Ikon' : 'Icon', render: entry => <span className="font-mono text-xs text-slate-700">{entry.icon || '—'}</span> },
+        ]}
+        status={entry => <StatusPill status={entry.status} label={entry.status === 'ACTIVE' ? (isID ? 'Aktif' : 'Active') : (isID ? 'Nonaktif' : 'Inactive')} />}
+        actions={entry => <>
+          <button type="button" disabled={busy || loading} aria-label={`${editLabel} ${entry.name}`} onClick={() => openForm(entry)} className={operationSecondary}>
+            <Pencil className="size-4" aria-hidden />{isID ? 'Ubah' : 'Edit'}
+          </button>
+          {entry.status === 'ACTIVE' && <button type="button" disabled={busy || loading} aria-label={`${disableLabel} ${entry.name}`}
+            onClick={() => { setActionError(null); setDialog({ kind: 'disable', entry }); }} className={operationDanger}>
+            <XCircle className="size-4" aria-hidden />{isID ? 'Nonaktifkan' : 'Deactivate'}
+          </button>}
+        </>}
+      />
+      {dialog?.kind === 'form' && (
+        <AdminFormModal isID={isID} title={dialog.entry ? editLabel : addLabel} submitting={busy} error={actionError}
+          onClose={() => setDialog(null)} onSubmit={save} submitLabel={isID ? 'Simpan' : 'Save'}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField label={isID ? 'Nama' : 'Name'} required maxLength={isAmenity ? 150 : 100}
+              value={draft.name} onChange={event => patchDraft({ name: event.target.value })} />
+            <SelectField label={fieldLabel} options={options} value={draft.group} onChange={event => patchDraft({ group: event.target.value })} />
+          </div>
+          <TextField label={isID ? 'Ikon' : 'Icon'} maxLength={100} placeholder={isAmenity ? 'wifi' : 'pool'}
+            value={draft.icon} onChange={event => patchDraft({ icon: event.target.value })} />
+          <TextAreaField label={isID ? 'Deskripsi' : 'Description'} maxLength={500} rows={3}
+            value={draft.description} onChange={event => patchDraft({ description: event.target.value })} />
+          {!isAmenity && dialog.entry && <SelectField label="Status" value={draft.status}
+            options={[{ value: 'ACTIVE', label: isID ? 'Aktif' : 'Active' }, { value: 'INACTIVE', label: isID ? 'Nonaktif' : 'Inactive' }]}
+            onChange={event => patchDraft({ status: event.target.value as Entry['status'] })} />}
+        </AdminFormModal>
+      )}
+      {dialog?.kind === 'disable' && (
+        <OperationsDialog title={disableLabel} description={dialog.entry.name} isID={isID} busy={busy} onClose={() => setDialog(null)}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-700">{isID ? 'Item ini akan dikeluarkan dari pilihan untuk penetapan baru.' : 'New assignments will omit this item.'}</p>
+            {actionError && <OperationsNotice>{actionError}</OperationsNotice>}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" disabled={busy} onClick={() => setDialog(null)} className={operationSecondary}>{isID ? 'Batal' : 'Cancel'}</button>
+              <button type="button" disabled={busy} onClick={() => void mutate(
+                () => isAmenity ? adminApi.deleteAmenity(dialog.entry.id) : adminApi.deleteFacility(dialog.entry.id),
+                isID ? 'Item dinonaktifkan.' : 'Item deactivated.',
+              )} className={operationDanger}>
+                {busy && <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden />}{isID ? 'Nonaktifkan' : 'Deactivate'}
+              </button>
+            </div>
+          </div>
+        </OperationsDialog>
+      )}
+    </OperationsPage>
   );
-};
+}

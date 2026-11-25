@@ -1,172 +1,115 @@
-import { useState, useEffect, useMemo } from 'react';
-import { adminApi, StaffUserDto, CreateStaffRequestDto } from '../api/admin';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { adminApi, type StaffUserDto, type CreateStaffRequestDto } from '../api/admin';
 import { mapBookingToUI } from '../lib/adapters';
-import { AuthUser, Booking, Hotel } from '../types';
-import { RoomInventorySummaryResponse } from '../types/api/room';
+import type { AuthUser, Hotel } from '../types';
+import type { BookingResponse, RoomInventorySummaryResponse } from '../types/api';
 
 export function useAdminData(user: AuthUser | null, hotels: Hotel[]) {
-  const isAdmin = user?.role === 'ADMIN';
-
+  const adminId = user?.role === 'ADMIN' ? user.userId : null;
+  const requestVersion = useRef(0);
+  const [loadedFor, setLoadedFor] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [staffList, setStaffList] = useState<StaffUserDto[]>([]);
-  const [staffLoading, setStaffLoading] = useState(false);
-  const [staffError, setStaffError] = useState<string | null>(null);
-
-  const [allBookings, setAllBookings] = useState<Booking[]>([]);
-  const [bookingsLoading, setBookingsLoading] = useState(false);
-  const [bookingsError, setBookingsError] = useState<string | null>(null);
-
-  // Real physical-unit counts, the single source of truth for capacity KPIs.
+  const [staffError, setStaffError] = useState(false);
+  const [bookings, setBookings] = useState<BookingResponse[]>([]);
+  const [bookingsError, setBookingsError] = useState(false);
   const [inventory, setInventory] = useState<RoomInventorySummaryResponse | null>(null);
 
-  // Load staff & system-wide bookings if ADMIN
-  const loadAdminData = async () => {
-    if (!isAdmin) return;
-    
-    setStaffLoading(true);
-    setStaffError(null);
-    try {
-      const staff = await adminApi.listStaff();
-      setStaffList(staff);
-    } catch (err) {
-      console.error('Failed to load staff list', err);
-      setStaffError('Gagal memuat daftar staf.');
-    } finally {
-      setStaffLoading(false);
-    }
+  const loadAdminData = useCallback(async () => {
+    if (adminId == null) return;
+    const version = ++requestVersion.current;
+    setRefreshing(true);
+    const [staff, reservations, rooms] = await Promise.allSettled([
+      adminApi.listStaff(),
+      adminApi.listAllBookings(),
+      adminApi.inventorySummary(),
+    ]);
+    if (version !== requestVersion.current) return;
 
-    // System-wide bookings from booking-service. An empty result means the
-    // system genuinely has no bookings — it must NOT fall back to this admin's
-    // own reservations, which would misreport personal data as system data.
-    setBookingsLoading(true);
-    setBookingsError(null);
-    try {
-      const rawBookings = await adminApi.listAllBookings();
-      const hotelLookup = new Map<string, Hotel>(hotels.map((h) => [h.id, h]));
-      setAllBookings(
-        (rawBookings ?? []).map((b) => {
-          const h = hotelLookup.get(String(b.hotelId));
-          return mapBookingToUI(b, {
-            hotelImage: h?.image,
-            hotelLocation: h?.location,
-            hotelAddress: h?.address,
-          });
-        })
-      );
-    } catch (err) {
-      console.error('Failed to load system-wide bookings', err);
-      setAllBookings([]);
-      setBookingsError('Gagal memuat data reservasi sistem.');
-    } finally {
-      setBookingsLoading(false);
-    }
-
-    // Real capacity, counted from room_units by room-service. Left null on
-    // failure so the dashboard shows "—" rather than a made-up number.
-    try {
-      setInventory(await adminApi.inventorySummary());
-    } catch (err) {
-      console.error('Failed to load room inventory summary', err);
-      setInventory(null);
-    }
-  };
+    setStaffList(staff.status === 'fulfilled' ? staff.value : []);
+    setStaffError(staff.status === 'rejected');
+    setBookings(reservations.status === 'fulfilled' ? reservations.value ?? [] : []);
+    setBookingsError(reservations.status === 'rejected');
+    setInventory(rooms.status === 'fulfilled' ? rooms.value : null);
+    setLoadedFor(adminId);
+    setRefreshing(false);
+  }, [adminId]);
 
   useEffect(() => {
-    loadAdminData();
-  }, [isAdmin, hotels.length]);
+    void loadAdminData();
+    return () => { requestVersion.current += 1; };
+  }, [loadAdminData]);
 
-  // KPIs are computed from the real system-wide list only.
-  const stats = useMemo(() => {
-    const list = allBookings;
+  const ownsData = loadedFor === adminId && adminId != null;
+  const allBookings = useMemo(() => {
+    if (!ownsData) return [];
+    const hotelLookup = new Map(hotels.map(hotel => [hotel.id, hotel]));
+    return bookings.map(booking => {
+      const hotel = hotelLookup.get(String(booking.hotelId));
+      return mapBookingToUI(booking, {
+        hotelImage: hotel?.image,
+        hotelLocation: hotel?.location,
+        hotelAddress: hotel?.address,
+      });
+    });
+  }, [bookings, hotels, ownsData]);
 
-    const totalRevenue = list
-      .filter((b) => b.paymentStatus === 'paid' && b.status !== 'cancelled')
-      .reduce((sum, b) => sum + b.totalPrice, 0);
+  const stats = useMemo(() => ({
+    totalRevenue: allBookings.reduce((total, booking) =>
+      booking.paymentStatus === 'paid' && booking.status !== 'cancelled' ? total + booking.totalPrice : total, 0),
+    totalBookings: allBookings.length,
+    confirmedCount: allBookings.filter(booking => booking.status === 'confirmed').length,
+    checkedInCount: allBookings.filter(booking => booking.status === 'checked-in').length,
+    completedCount: allBookings.filter(booking => booking.status === 'completed').length,
+  }), [allBookings]);
 
-    const totalBookings = list.length;
-    const confirmedCount = list.filter((b) => b.status === 'confirmed').length;
-    const checkedInCount = list.filter((b) => b.status === 'checked-in').length;
-    const completedCount = list.filter((b) => b.status === 'completed').length;
-    const cancelledCount = list.filter((b) => b.status === 'cancelled').length;
-
-    // Capacity is the real count of physical room units from room-service, not
-    // an estimate derived from the hotel catalog. The previous version summed
-    // `r.totalInventory || r.availableRooms || 5` per room type, which invented
-    // 5 units for every room the catalog hadn't loaded inventory for — so the
-    // figure never matched what the rooms actually had.
-    const totalInventory = inventory?.totalUnits ?? null;
-
-    // Occupancy is only meaningful against a known capacity.
-    const occupancyRate =
-      totalInventory && totalInventory > 0
-        ? Math.min(100, Math.round((checkedInCount / totalInventory) * 100))
-        : null;
-
-    return {
-      totalRevenue,
-      totalBookings,
-      confirmedCount,
-      checkedInCount,
-      completedCount,
-      cancelledCount,
-      occupancyRate,
-      totalHotels: hotels.length,
-      totalInventory,
-      availableUnits: inventory?.availableUnits ?? null,
-      occupiedUnits: inventory?.occupiedUnits ?? null,
-      outOfServiceUnits: inventory?.outOfServiceUnits ?? null,
-    };
-  }, [allBookings, hotels, inventory]);
-
-  // Actions
   const handleCreateStaff = async (payload: CreateStaffRequestDto) => {
+    const version = requestVersion.current;
     const newStaff = await adminApi.createStaff(payload);
-    setStaffList((prev) => [newStaff, ...prev]);
+    if (version === requestVersion.current) setStaffList(previous => [newStaff, ...previous]);
     return newStaff;
   };
 
   const handleDeactivateStaff = async (staffId: number) => {
+    const version = requestVersion.current;
     await adminApi.deactivateStaff(staffId);
-    setStaffList((prev) =>
-      prev.map((s) => (s.id === staffId ? { ...s, active: false, status: 'INACTIVE' } : s))
-    );
+    if (version === requestVersion.current) {
+      setStaffList(previous => previous.map(staff => staff.id === staffId
+        ? { ...staff, active: false, status: 'INACTIVE' }
+        : staff));
+    }
   };
 
-  // Manual confirmation for reservations that never completed an online
-  // payment (bank transfer settled at the desk, corporate billing). The
-  // backend flips the booking to CONFIRMED/PAID, so mirror both fields here
-  // instead of guessing a partial state.
+  const updateBooking = (updated: BookingResponse) => {
+    setBookings(previous => previous.map(booking => booking.id === updated.id ? updated : booking));
+  };
+
   const handleConfirmBooking = async (bookingId: string) => {
-    const numericId = Number(bookingId);
-    if (!Number.isFinite(numericId)) return;
-    const confirmed = await adminApi.confirmBooking(numericId);
-    setAllBookings((prev) =>
-      prev.map((b) =>
-        b.id === bookingId
-          ? { ...b, status: 'confirmed', paymentStatus: confirmed.paymentStatus === 'PAID' ? 'paid' : b.paymentStatus }
-          : b
-      )
-    );
+    const version = requestVersion.current;
+    const updated = await adminApi.confirmBooking(Number(bookingId));
+    if (version === requestVersion.current) updateBooking(updated);
   };
 
   const handleCheckOutGuest = async (bookingId: string) => {
-    const numericId = Number(bookingId);
-    if (!isNaN(numericId)) {
-      await adminApi.checkOut(numericId);
+    const version = requestVersion.current;
+    const updated = await adminApi.checkOut(Number(bookingId));
+    if (version === requestVersion.current) {
+      updateBooking(updated);
+      const rooms = await adminApi.inventorySummary().catch(() => null);
+      if (version === requestVersion.current) setInventory(rooms);
     }
-    setAllBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: 'completed' } : b))
-    );
+    return updated;
   };
 
   return {
-    isAdmin,
     stats,
     allBookings,
-    bookingsError,
-    bookingsLoading,
-    staffList,
-    staffLoading,
-    staffError,
+    bookingsError: ownsData && bookingsError,
+    staffList: ownsData ? staffList : [],
+    staffError: ownsData && staffError,
+    inventory: ownsData ? inventory : null,
+    initialLoading: !ownsData,
+    loading: refreshing || !ownsData,
     loadAdminData,
     handleCreateStaff,
     handleDeactivateStaff,

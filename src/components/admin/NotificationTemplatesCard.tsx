@@ -1,468 +1,157 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  AlertCircle, CheckCircle2, FileText, Loader2, Plus, RotateCw, Save, X, XCircle,
-} from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { Pencil, Plus, Power } from 'lucide-react';
 import { adminApi } from '../../api/admin';
 import { ApiError } from '../../lib/http';
-import {
-  CreateNotificationTemplateRequest,
-  NotificationChannel,
-  NotificationEventType,
-  NotificationTemplateResponse,
+import { notificationChannelLabel, notificationEventLabel, notificationEventTypes } from '../../lib/notificationLabels';
+import type { Language } from '../../types';
+import type {
+  CreateNotificationTemplateRequest, NotificationChannel, NotificationEventType, NotificationTemplateResponse,
 } from '../../types/api/notification';
+import { AdminFormModal, SelectField, TextAreaField, TextField } from './AdminFormModal';
+import {
+  OperationsList, OperationsNotice, operationDate, operationField, operationPrimary, operationSecondary,
+} from './OperationsPage';
+import { StatusPill } from './StatusPill';
 
-interface NotificationTemplatesCardProps {
-  isID: boolean;
-  /** Same catalogue the manual-send form offers, so both stay in step. */
-  eventTypes: NotificationEventType[];
-}
+const channels: NotificationChannel[] = ['IN_APP', 'EMAIL'];
+const emptyDraft: CreateNotificationTemplateRequest = {
+  eventType: 'BOOKING_CONFIRMED', channel: 'IN_APP', titleTemplate: '', messageTemplate: '', isActive: true,
+};
 
-const CHANNELS: NotificationChannel[] = ['IN_APP', 'EMAIL'];
+export function NotificationTemplatesCard({ language, data, loading, error, refresh }: {
+  language: Language;
+  data: NotificationTemplateResponse[] | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+}) {
+  const isID = language === 'ID';
+  const [eventType, setEventType] = useState('');
+  const [channel, setChannel] = useState('');
+  const [editor, setEditor] = useState<{ id: number | null; draft: CreateNotificationTemplateRequest } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-const INPUT =
-  'w-full min-h-11 p-2.5 rounded-xl border border-slate-200 text-[13px] text-slate-900 placeholder-slate-300 focus:outline-none focus:border-slate-900 transition-colors';
-const LABEL = 'text-[11px] font-semibold text-slate-500 block mb-1.5';
+  const open = (template?: NotificationTemplateResponse) => {
+    setActionError(null);
+    setEditor(template ? { id: template.id, draft: {
+      eventType: template.eventType, channel: template.channel, titleTemplate: template.titleTemplate,
+      messageTemplate: template.messageTemplate, isActive: template.isActive,
+    } } : { id: null, draft: { ...emptyDraft } });
+  };
 
-const emptyDraft = (eventType: NotificationEventType): CreateNotificationTemplateRequest => ({
-  eventType,
-  channel: 'IN_APP',
-  titleTemplate: '',
-  messageTemplate: '',
-  isActive: true,
-});
+  const patchDraft = (values: Partial<CreateNotificationTemplateRequest>) => {
+    setEditor(previous => previous && ({ ...previous, draft: { ...previous.draft, ...values } }));
+    setActionError(null);
+  };
 
-const channelLabel = (channel: NotificationChannel, isID: boolean) =>
-  channel === 'IN_APP' ? (isID ? 'Dalam Aplikasi' : 'In-app') : 'Email';
-
-export const NotificationTemplatesCard: React.FC<NotificationTemplatesCardProps> = ({
-  isID,
-  eventTypes,
-}) => {
-  const [templates, setTemplates] = useState<NotificationTemplateResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  // Kept apart from "no templates": a failed load must never read as an empty
-  // catalogue, or a broken service looks like a fresh install.
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState<CreateNotificationTemplateRequest>(() => emptyDraft(eventTypes[0]));
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [savedId, setSavedId] = useState<number | null>(null);
-
-  const [editing, setEditing] = useState<NotificationTemplateResponse | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  const run = async (task: () => Promise<NotificationTemplateResponse>, message: string) => {
+    if (busy) return;
+    setBusy(true);
+    setActionError(null);
+    setNotice(null);
     try {
-      setTemplates(await adminApi.listNotificationTemplates());
-    } catch (err) {
-      setLoadError(
-        err instanceof ApiError
-          ? err.message
-          : isID ? 'Gagal memuat template notifikasi.' : 'Failed to load notification templates.'
-      );
+      await task();
+      setEditor(null);
+      setNotice(message);
+      await refresh();
+    } catch (failure) {
+      setActionError(failure instanceof ApiError ? failure.message : (isID ? 'Template gagal disimpan.' : 'Could not save the template.'));
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  }, [isID]);
+  };
 
-  useEffect(() => { load(); }, [load]);
-
-  const failureMessage = (err: unknown, fallback: string) =>
-    err instanceof ApiError ? err.message : fallback;
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!draft.titleTemplate.trim() || !draft.messageTemplate.trim()) {
-      setFormError(isID ? 'Judul dan pesan template wajib diisi.' : 'Title and message templates are required.');
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editor) return;
+    const { id, draft } = editor;
+    const titleTemplate = draft.titleTemplate.trim();
+    const messageTemplate = draft.messageTemplate.trim();
+    if (!titleTemplate || !messageTemplate) {
+      setActionError(isID ? 'Judul dan isi pesan wajib diisi.' : 'Enter a title and message.');
       return;
     }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const created = await adminApi.createNotificationTemplate({
-        ...draft,
-        titleTemplate: draft.titleTemplate.trim(),
-        messageTemplate: draft.messageTemplate.trim(),
-      });
-      setTemplates((prev) => [created, ...prev]);
-      setDraft(emptyDraft(eventTypes[0]));
-      setCreating(false);
-      setSavedId(created.id);
-    } catch (err) {
-      // A duplicate (eventType, channel) pair is rejected by the backend; the
-      // message explains which pair already exists, so show it verbatim.
-      setFormError(failureMessage(err, isID ? 'Gagal menyimpan template.' : 'Failed to save the template.'));
-    } finally {
-      setSaving(false);
-    }
+    const fields = { titleTemplate, messageTemplate, isActive: draft.isActive };
+    void run(() => id === null ? adminApi.createNotificationTemplate({ ...draft, ...fields })
+      : adminApi.updateNotificationTemplate(id, fields), isID ? 'Template disimpan.' : 'Template saved.');
   };
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editing) return;
-    if (!editing.titleTemplate.trim() || !editing.messageTemplate.trim()) {
-      setFormError(isID ? 'Judul dan pesan template wajib diisi.' : 'Title and message templates are required.');
-      return;
-    }
-    setSaving(true);
-    setFormError(null);
-    try {
-      const updated = await adminApi.updateNotificationTemplate(editing.id, {
-        titleTemplate: editing.titleTemplate.trim(),
-        messageTemplate: editing.messageTemplate.trim(),
-        isActive: editing.isActive,
-      });
-      setTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      setEditing(null);
-      setSavedId(updated.id);
-    } catch (err) {
-      setFormError(failureMessage(err, isID ? 'Gagal memperbarui template.' : 'Failed to update the template.'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleActive = async (template: NotificationTemplateResponse) => {
-    setBusyId(template.id);
-    setFormError(null);
-    try {
-      const updated = await adminApi.updateNotificationTemplate(template.id, { isActive: !template.isActive });
-      setTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    } catch (err) {
-      setFormError(failureMessage(err, isID ? 'Gagal mengubah status template.' : 'Failed to change the template status.'));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const sorted = useMemo(
-    () => [...templates].sort((a, b) =>
-      a.eventType === b.eventType ? a.channel.localeCompare(b.channel) : a.eventType.localeCompare(b.eventType)
-    ),
-    [templates]
-  );
+  const eventOptions = notificationEventTypes.map(value => ({ value, label: notificationEventLabel(value, isID) }));
+  const channelOptions = channels.map(value => ({ value, label: notificationChannelLabel(value, isID) }));
+  const rows = (data ?? []).filter(item => (!eventType || item.eventType === eventType) && (!channel || item.channel === channel))
+    .sort((first, second) => notificationEventLabel(first.eventType, isID).localeCompare(notificationEventLabel(second.eventType, isID))
+      || first.channel.localeCompare(second.channel));
+  const draft = editor?.draft;
 
   return (
-    <section className="bg-white rounded-2xl border border-slate-100 shadow-xs p-5 space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sm sm:text-base font-semibold text-slate-900 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-slate-400" />
-            {isID ? 'Template Notifikasi' : 'Notification Templates'}
-          </h2>
-          <p className="text-[11px] sm:text-xs text-slate-400 font-light mt-0.5">
-            {isID
-              ? 'Judul dan isi pesan bawaan per event. Pakai token {{namaVariabel}} untuk data dinamis.'
-              : 'Default title and body per event. Use {{variableName}} tokens for dynamic data.'}
-          </p>
-          <code className="inline-block mt-1 text-[9px] sm:text-[10px] text-slate-400 bg-slate-50 border border-slate-100 rounded-md px-1.5 py-0.5 font-mono">
-            /api/admin/notification-templates
-          </code>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="min-h-11 px-4 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-40"
-          >
-            <RotateCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            {isID ? 'Muat Ulang' : 'Refresh'}
+    <div className="space-y-3">
+      {error && <OperationsNotice>{error}</OperationsNotice>}
+      {!editor && actionError && <OperationsNotice>{actionError}</OperationsNotice>}
+      {notice && <OperationsNotice success>{notice}</OperationsNotice>}
+      <OperationsList title={isID ? 'Template notifikasi' : 'Notification templates'} isID={isID} rows={rows} loading={loading}
+        description={data && !loading ? `${rows.length} ${isID ? 'template ditampilkan' : 'templates shown'}` : undefined}
+        empty={error ? (isID ? 'Daftar template belum tersedia.' : 'Templates are unavailable.')
+          : eventType || channel ? (isID ? 'Tidak ada template yang cocok.' : 'No matching templates.')
+            : (isID ? 'Belum ada template notifikasi.' : 'There are no notification templates yet.')}
+        controls={<div className="grid w-full min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(130px,auto)_auto] lg:w-auto lg:min-w-lg">
+          <select aria-label={isID ? 'Filter jenis template' : 'Filter template event'} value={eventType} onChange={event => setEventType(event.target.value)} className={operationField + ' bg-white'}>
+            <option value="">{isID ? 'Semua jenis' : 'All events'}</option>
+            {eventOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <select aria-label={isID ? 'Filter kanal template' : 'Filter template channel'} value={channel} onChange={event => setChannel(event.target.value)} className={operationField + ' bg-white'}>
+            <option value="">{isID ? 'Semua kanal' : 'All channels'}</option>
+            {channelOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+          <button type="button" disabled={busy} onClick={() => open()} className={operationPrimary}>
+            <Plus className="size-4" aria-hidden />{isID ? 'Tambah template' : 'Add template'}
           </button>
-          <button
-            type="button"
-            onClick={() => { setCreating((open) => !open); setFormError(null); }}
-            aria-expanded={creating}
-            className="min-h-11 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            {isID ? 'Template Baru' : 'New Template'}
-          </button>
-        </div>
-      </div>
-
-      {formError && (
-        <p role="alert" className="flex items-start gap-2 text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
-          <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
-          <span>{formError}</span>
-        </p>
-      )}
-
-      {creating && (
-        <form onSubmit={handleCreate} className="rounded-2xl border border-slate-200 p-4 space-y-4 bg-slate-50/60">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <label>
-              <span className={LABEL}>{isID ? 'Jenis Event' : 'Event Type'}</span>
-              <select
-                value={draft.eventType}
-                onChange={(e) => setDraft({ ...draft, eventType: e.target.value as NotificationEventType })}
-                className={`${INPUT} cursor-pointer bg-white`}
-              >
-                {eventTypes.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
-              </select>
-            </label>
-            <label>
-              <span className={LABEL}>Channel</span>
-              <select
-                value={draft.channel}
-                onChange={(e) => setDraft({ ...draft, channel: e.target.value as NotificationChannel })}
-                className={`${INPUT} cursor-pointer bg-white`}
-              >
-                {CHANNELS.map((c) => <option key={c} value={c}>{channelLabel(c, isID)}</option>)}
-              </select>
-            </label>
+        </div>}
+        primary={{ label: 'Template', render: item => (
+          <div className="max-w-[29rem]">
+            <p className="font-semibold text-navy-dark [overflow-wrap:anywhere]">{item.titleTemplate}</p>
+            <p className="mt-1 text-xs text-slate-600">{notificationEventLabel(item.eventType, isID)}</p>
           </div>
-
-          <label className="block">
-            <span className={LABEL}>
-              {isID ? 'Judul Template' : 'Title Template'} <span className="text-rose-500">*</span>
-            </span>
-            <input
-              value={draft.titleTemplate}
-              maxLength={200}
-              onChange={(e) => setDraft({ ...draft, titleTemplate: e.target.value })}
-              placeholder={isID ? 'mis. Booking {{bookingCode}} dikonfirmasi' : 'e.g. Booking {{bookingCode}} confirmed'}
-              className={`${INPUT} bg-white`}
-            />
-          </label>
-
-          <label className="block">
-            <span className={LABEL}>
-              {isID ? 'Isi Pesan' : 'Message Template'} <span className="text-rose-500">*</span>
-            </span>
-            <textarea
-              value={draft.messageTemplate}
-              rows={3}
-              maxLength={4000}
-              onChange={(e) => setDraft({ ...draft, messageTemplate: e.target.value })}
-              placeholder={isID ? 'mis. Reservasi {{bookingCode}} sudah dikonfirmasi.' : 'e.g. Your reservation {{bookingCode}} is confirmed.'}
-              className="w-full rounded-xl border border-slate-200 p-3 text-[13px] text-slate-900 placeholder-slate-300 resize-y bg-white focus:outline-none focus:border-slate-900"
-            />
-          </label>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 min-h-11">
-              <input
-                type="checkbox"
-                checked={draft.isActive ?? true}
-                onChange={(e) => setDraft({ ...draft, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-slate-300 accent-slate-900"
-              />
-              {isID ? 'Aktifkan template ini' : 'Activate this template'}
-            </label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => { setCreating(false); setFormError(null); }}
-                className="min-h-11 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold cursor-pointer hover:bg-slate-100"
-              >
-                {isID ? 'Batal' : 'Cancel'}
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="min-h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                {isID ? 'Simpan Template' : 'Save Template'}
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
-
-      {loadError ? (
-        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700 space-y-2">
-          <p className="flex items-center gap-2 font-semibold">
-            <AlertCircle className="w-4 h-4" />
-            {loadError}
-          </p>
-          <button
-            type="button"
-            onClick={load}
-            className="min-h-11 px-4 rounded-xl bg-white border border-rose-200 text-rose-700 font-semibold cursor-pointer hover:bg-rose-100"
-          >
-            {isID ? 'Coba lagi' : 'Try again'}
+        ) }}
+        columns={[
+          { label: isID ? 'Kanal' : 'Channel', render: item => notificationChannelLabel(item.channel, isID) },
+          { label: isID ? 'Diperbarui' : 'Updated', render: item => operationDate(item.updatedAt, language) },
+        ]}
+        status={item => <StatusPill status={item.isActive ? 'ACTIVE' : 'INACTIVE'}
+          label={item.isActive ? (isID ? 'Aktif' : 'Active') : (isID ? 'Nonaktif' : 'Inactive')} />}
+        actions={item => <>
+          <button type="button" disabled={busy || loading} onClick={() => open(item)} aria-label={`${isID ? 'Ubah template' : 'Edit template'} ${item.titleTemplate}`} className={operationSecondary}>
+            <Pencil className="size-4" aria-hidden />{isID ? 'Ubah' : 'Edit'}
           </button>
-        </div>
-      ) : loading ? (
-        <p className="px-4 py-10 text-center text-xs text-slate-400 font-light flex items-center justify-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" />
-          {isID ? 'Memuat template...' : 'Loading templates...'}
-        </p>
-      ) : sorted.length === 0 ? (
-        <p className="px-4 py-10 text-center text-xs text-slate-400 font-light">
-          {isID ? 'Belum ada template notifikasi.' : 'No notification templates yet.'}
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-100">
-          <table className="w-full text-left text-xs min-w-[720px]">
-            <thead className="bg-slate-50/70 border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
-              <tr>
-                <th className="px-4 py-3">Event</th>
-                <th className="px-4 py-3">Channel</th>
-                <th className="px-4 py-3">{isID ? 'Judul & Pesan' : 'Title & Message'}</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">{isID ? 'Diperbarui' : 'Updated'}</th>
-                <th className="px-4 py-3 text-right">{isID ? 'Aksi' : 'Actions'}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50 text-slate-700">
-              {sorted.map((t) => (
-                <tr key={t.id} className="hover:bg-slate-50/50 transition-colors align-top">
-                  <td className="px-4 py-3 font-semibold text-slate-900 whitespace-nowrap">
-                    {t.eventType.replace(/_/g, ' ')}
-                  </td>
-                  <td className="px-4 py-3 text-slate-500 text-[11px] whitespace-nowrap">
-                    {channelLabel(t.channel, isID)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-900">{t.titleTemplate}</p>
-                    <p className="text-[11px] text-slate-500 font-light max-w-[380px]">{t.messageTemplate}</p>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {t.isActive ? (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100 inline-flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" />
-                        {isID ? 'Aktif' : 'Active'}
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 inline-flex items-center gap-1">
-                        <XCircle className="w-3 h-3" />
-                        {isID ? 'Nonaktif' : 'Inactive'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
-                    {t.updatedAt ? t.updatedAt.replace('T', ' ').slice(0, 16) : '—'}
-                    {savedId === t.id && (
-                      <span className="block text-[10px] font-semibold text-emerald-600">
-                        {isID ? 'Tersimpan' : 'Saved'}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right whitespace-nowrap space-x-1.5">
-                    {busyId === t.id ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        {isID ? 'Memproses' : 'Processing'}
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => { setEditing(t); setFormError(null); }}
-                          className="min-h-11 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold text-[11px] cursor-pointer"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleActive(t)}
-                          className="min-h-11 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 font-semibold text-[11px] cursor-pointer"
-                        >
-                          {t.isActive ? (isID ? 'Nonaktifkan' : 'Deactivate') : (isID ? 'Aktifkan' : 'Activate')}
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {editing && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="edit-template-title"
-        >
-          <form onSubmit={handleUpdate} className="w-full max-w-xl bg-white rounded-2xl border border-slate-100 p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 id="edit-template-title" className="text-base font-semibold text-slate-900">
-                  {isID ? 'Edit template' : 'Edit template'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  {editing.eventType.replace(/_/g, ' ')} · {channelLabel(editing.channel, isID)}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setEditing(null); setFormError(null); }}
-                className="w-11 h-11 rounded-xl hover:bg-slate-100 text-slate-500 flex items-center justify-center cursor-pointer"
-                aria-label={isID ? 'Tutup' : 'Close'}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <label className="block">
-              <span className={LABEL}>{isID ? 'Judul Template' : 'Title Template'}</span>
-              <input
-                value={editing.titleTemplate}
-                maxLength={200}
-                onChange={(e) => setEditing({ ...editing, titleTemplate: e.target.value })}
-                className={INPUT}
-              />
-            </label>
-
-            <label className="block">
-              <span className={LABEL}>{isID ? 'Isi Pesan' : 'Message Template'}</span>
-              <textarea
-                value={editing.messageTemplate}
-                rows={5}
-                maxLength={4000}
-                onChange={(e) => setEditing({ ...editing, messageTemplate: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 p-3 text-[13px] text-slate-900 resize-y focus:outline-none focus:border-slate-900"
-              />
-            </label>
-
-            <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700 min-h-11">
-              <input
-                type="checkbox"
-                checked={editing.isActive}
-                onChange={(e) => setEditing({ ...editing, isActive: e.target.checked })}
-                className="w-4 h-4 rounded border-slate-300 accent-slate-900"
-              />
-              {isID ? 'Template aktif' : 'Template active'}
-            </label>
-
-            {formError && (
-              <p role="alert" className="flex items-start gap-2 text-xs text-rose-700">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-px" />
-                <span>{formError}</span>
-              </p>
-            )}
-
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => { setEditing(null); setFormError(null); }}
-                className="min-h-11 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold cursor-pointer hover:bg-slate-50"
-              >
-                {isID ? 'Batal' : 'Cancel'}
-              </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="min-h-11 px-5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                {isID ? 'Simpan perubahan' : 'Save changes'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-    </section>
+          <button type="button" disabled={busy || loading} onClick={() => void run(
+            () => adminApi.updateNotificationTemplate(item.id, { isActive: !item.isActive }),
+            item.isActive ? (isID ? 'Template dinonaktifkan.' : 'Template deactivated.') : (isID ? 'Template diaktifkan.' : 'Template activated.'),
+          )} aria-label={`${item.isActive ? (isID ? 'Nonaktifkan' : 'Deactivate') : (isID ? 'Aktifkan' : 'Activate')} ${item.titleTemplate}`} className={operationSecondary}>
+            <Power className="size-4" aria-hidden />{item.isActive ? (isID ? 'Nonaktifkan' : 'Deactivate') : (isID ? 'Aktifkan' : 'Activate')}
+          </button>
+        </>}
+      />
+      {editor && draft && <AdminFormModal isID={isID} title={editor.id === null ? (isID ? 'Tambah template' : 'Add template') : (isID ? 'Ubah template' : 'Edit template')}
+        subtitle={editor.id === null ? undefined : `${notificationEventLabel(draft.eventType, isID)} · ${notificationChannelLabel(draft.channel, isID)}`}
+        submitting={busy} error={actionError} onSubmit={save} onClose={() => { setEditor(null); setActionError(null); }}
+        submitLabel={isID ? 'Simpan template' : 'Save template'}>
+        {editor.id === null && <div className="grid gap-3 sm:grid-cols-2">
+          <SelectField label={isID ? 'Jenis notifikasi' : 'Notification type'} options={eventOptions} value={draft.eventType}
+            onChange={event => patchDraft({ eventType: event.target.value as NotificationEventType })} />
+          <SelectField label={isID ? 'Kanal' : 'Channel'} options={channelOptions} value={draft.channel}
+            onChange={event => patchDraft({ channel: event.target.value as NotificationChannel })} />
+        </div>}
+        <TextField label={isID ? 'Judul template' : 'Template title'} required maxLength={200} value={draft.titleTemplate}
+          onChange={event => patchDraft({ titleTemplate: event.target.value })} />
+        <TextAreaField label={isID ? 'Isi pesan' : 'Message'} required rows={6} maxLength={4000} value={draft.messageTemplate}
+          onChange={event => patchDraft({ messageTemplate: event.target.value })}
+          hint={isID ? 'Gunakan variabel yang tersedia untuk jenis notifikasi ini, misalnya {{bookingCode}} untuk reservasi.' : 'Use variables available for this event, such as {{bookingCode}} for a reservation.'} />
+        <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
+          <input type="checkbox" checked={draft.isActive ?? true} onChange={event => patchDraft({ isActive: event.target.checked })} className="size-4 accent-navy" />
+          {isID ? 'Template aktif' : 'Template active'}
+        </label>
+      </AdminFormModal>}
+    </div>
   );
-};
+}
